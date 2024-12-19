@@ -8,7 +8,6 @@ const TIMEOUT_BORRAR = process.env.TIMEOUT_BORRAR * 1000;
 const TIMEOUT_RESPONDER = process.env.TIMEOUT_RESPONDER * 1000;
 const TIMEOUT_WATCHDOG = process.env.TIMEOUT_WATCHDOG * 1000;
 const MONGO_URL = process.env.MONGO_URL;
-const KEY = JSON.parse(process.env.ACCOUNT_JSON);
 const GRAPH_API_TOKEN = process.env.GRAPH_API_TOKEN;
 
 const express = require("express");
