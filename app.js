@@ -470,7 +470,7 @@ Tienes que averiguar que centro quiere el cliente, se lo tienes que preguntar, c
 El sistema tambien te dirá si debes preguntarle al cliente el tipo del servicio ("Señora", "Caballero" o "Estética"). Sólo puedes preguntarselo al cliente si el sistema te lo dice. Sólo si se lo has preguntado el cliente, en cuanto identifiques el tipo del servicio que desea hacerse el cliente tienes que escribir solo "SPECIALITY" y el tipo de servicio, que será "Señora", "Caballero" o "Estética".
 Si has identificado que el cliente desea saber el horario de un peluquero, primero pregunta de que salon es el peluquero. Una vez tengas ese dato, escribe "CONSULTHOR" seguido de la siguiente informacion: la fecha en formato ISO_8601 con zona horaria UTC, el nombre del peluquero (si no se especifica el peluquero, escribe MOREINFO). SOlo puede ser una fecha, no un rango.
 Si el cliente pide saber qué peluqueros hay disponibles, las horas disponibles de un peluquero en concreto, que le asignes uno aleatorio, o que le asignes un peluquero en concreto, asegúrate que hayan solicitado la hora deseada(sino, preestablecela a las 10h). Para saber la disponibilidad de peluqueros escribe SOLO "LISTAPELUQ", la fecha y hora en formato ISO con zona horaria de Madrid(Europa) y el nombre del peluquero que hayan solicitado (sino han solicitado ninguno escribe "MOREINFO"). LISTAPELUQ solo puede meter una fecha, no un rango de fechas. El sistema dirá la disponibilidad de los peluqueros.
-Si el sistema ha confirmado disponibilidad, pregunta al cliente si desea confirmar la cita y escribe "GUARDACITA" y todos los detalles de la cita en el formato siguiente (pon solo los valores, sin las etiquetas de los datos incluyendo "|"): | Servicio | Fecha y hora (en formato ISO con zona horaria de Madrid(Europa) | Salón | Peluquero | Nombre del cliente
+Si el sistema ha confirmado disponibilidad, pregunta al cliente si desea confirmar la cita y escribe "GUARDACITA" y todos los detalles de la cita en el formato siguiente (pon solo los valores, sin las etiquetas de los datos y incluyendo "|"). deberia verse asi: "GUARDACITA | Servicio | Fecha y hora (en formato ISO con zona horaria de Madrid(Europa) | Salón | Peluquero | Nombre del cliente"
 Si el cliente pide información sobre un centro (como el numero de telefono o la direccion), escribe "CENTROINFO" y el nombre del centro.
 Si has identificado que un cliente que obtener información de su próxima cita, escribe BUSCARCITA.
 
@@ -2615,8 +2615,12 @@ class Conversation {
   }
 
   async ProcesarCita(gpt) {
+    DoLog(`Iniciando ProcesarCita con input: ${gpt}`);
+    
     // Dividir el comando en partes para extraer los datos de la cita
     let partesCita = gpt.split("|");
+    DoLog(`Partes de la cita extraídas: ${JSON.stringify(partesCita)}`);
+    
     this.nombreServicio = partesCita[1].trim();
     let fechaHora = partesCita[2].trim();
     this.salonNombre = partesCita[3].trim();
@@ -2627,22 +2631,35 @@ class Conversation {
       .normalize("NFD")
       .replace(/[\u0300-\u036f]/g, "");
 
+    DoLog(`Datos procesados:
+    - Servicio: ${this.nombreServicio}
+    - Fecha/Hora: ${fechaHora}
+    - Salón: ${this.salonNombre}
+    - Peluquero: ${this.peluqueroNombre}
+    - Cliente: ${this.nombre}`);
+
     let rtn = new Message(WhoEnum.System);
     let falta = [];
     let fechaIni = null;
     let fechaFin = null;
     this.peluquero = "";
 
-    // Validación de los datos requeridos
+    // Validación del servicio
+    DoLog(`Iniciando validación del servicio: ${this.nombreServicio}`);
     if (this.nombreServicio == "") {
       falta.push("Servicio");
+      DoLog("Error: Servicio vacío");
     } else {
       this.servicioID = await ChatGPT.CalculaServicioID(this.nombreServicio);
+      DoLog(`ServicioID calculado: ${this.servicioID}`);
       if (this.servicioID == "") {
         falta.push("Servicio");
+        DoLog("Error: No se pudo calcular el ServicioID");
       }
     }
 
+    // Procesamiento de fecha y hora
+    DoLog("Iniciando procesamiento de fecha y hora");
     let timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const moment = require("moment-timezone");
     let citaInicioConZona = moment.tz(fechaHora, "Europe/Madrid").format();
@@ -2650,61 +2667,83 @@ class Conversation {
       .tz(citaInicioConZona, "Europe/Madrid")
       .add(this.duracionServicio, "minutes")
       .format();
+    
+    DoLog(`Fecha/hora procesada:
+    - Timezone: ${timezone}
+    - Inicio: ${citaInicioConZona}
+    - Fin: ${fechaHoraFin}
+    - Duración: ${this.duracionServicio} minutos`);
 
+    // Validación del salón
+    DoLog(`Iniciando validación del salón. SalonID actual: ${this.salonID}`);
     if (this.salonID == "") {
       falta.push("Salón");
+      DoLog("Error: SalonID vacío");
     } else {
       let salon = await MongoDB.ObtenerSalonPorSalonID(this.salonID);
+      DoLog(`Datos del salón obtenidos: ${JSON.stringify(salon)}`);
       this.salonID = salon.salonID;
       this.salonNombre = salon.nombre;
     }
 
+    // Validación del peluquero
+    DoLog(`Iniciando validación del peluquero: ${this.peluqueroNombre}`);
     if (this.peluqueroNombre == "") {
       falta.push("Peluquero");
+      DoLog("Error: Nombre de peluquero vacío");
     } else {
       let peluqueroID = await ChatGPT.CalculaPeluquero(
         this.peluqueroNombre,
         this.salonID
       );
+      DoLog(`PeluqueroID calculado: ${peluqueroID}`);
 
       for (let peluquero of peluqueros) {
+        DoLog(`Comparando con peluquero: ${peluquero.peluqueroID}`);
         if (peluquero.peluqueroID == peluqueroID) {
           this.peluquero = peluquero;
+          DoLog(`Peluquero encontrado: ${JSON.stringify(peluquero)}`);
           break;
-        } else {
-          this.peluquero = "";
         }
       }
       if (this.peluquero == "") {
         falta.push("Peluquero");
+        DoLog("Error: No se encontró el peluquero en la lista");
       }
     }
 
+    // Validación del nombre del cliente
+    DoLog(`Validando nombre del cliente: ${this.nombre}`);
     if (this.nombre == "") {
       falta.push("Nombre cliente");
+      DoLog("Error: Nombre de cliente vacío");
     }
 
-    // Enviar mensaje de error si faltan datos
+    // Manejo de errores en la validación
     if (falta.length > 0) {
+      DoLog(`Validación fallida. Faltan los siguientes campos: ${falta.join(", ")}`);
       rtn.message = `Para completar tu reserva, necesitaría que me digas ${falta.join(" y ")}. ¿Me ayudas con esa información?`;
-      DoLog(rtn.message);
       this.AddMsg(rtn);
       return "";
     }
 
-    // Guardar la nueva cita en la base de datos
+    // Guardado de la cita
+    DoLog("Iniciando guardado de la cita en la base de datos");
     let saved = await MongoDB.GuardarEventoEnBD(
       this,
       citaInicioConZona,
       fechaHoraFin
     );
+    
     try {
       if (saved) {
+        DoLog("Cita guardada exitosamente");
         rtn.message = `Comando GUARDACITA confirmado. La cita del cliente ha sido guardada en el sistema.`;
         this.citaGuardada = true;
 
-        // Incrementar el contador de citas confirmadas y registrar éxito
         await statisticsManager.incrementConfirmedAppointments();
+        DoLog("Contador de citas confirmadas incrementado");
+        
         await LogSuccess(
           this.from,
           "Cita guardada con éxito",
@@ -2712,21 +2751,22 @@ class Conversation {
           this.salonNombre
         );
 
-        // Si estamos en modo de modificación y se guardó la nueva cita, elimina la antigua
-        //console.log("this.citaAntigua:", this.citaAntigua);
+        // Manejo de modificación de cita
         if (this.modificacionActiva && this.citaAntigua) {
+          DoLog(`Procesando modificación de cita antigua: ${JSON.stringify(this.citaAntigua)}`);
           await Appointments.updateOne(
-            { _id: this.citaAntigua._id }, // Identifica la cita antigua por ID
-            { $set: { status: "canceled" } } // Cambia el estado a 'canceled'
+            { _id: this.citaAntigua._id },
+            { $set: { status: "canceled" } }
           );
+          DoLog("Cita antigua marcada como cancelada");
           rtn.message += "La cita anterior ha sido marcada como cancelada.";
           this.modificacionActiva = false;
           this.citaAntigua = null;
-          // Incrementa el contador de citas modificadas
           await statisticsManager.incrementModifiedAppointments();
+          DoLog("Contador de citas modificadas incrementado");
         }
       } else {
-        // Error en el guardado de la cita
+        DoLog("Error: No se pudo guardar la cita");
         rtn.message = `Ha habido un pequeño problema técnico 😅 ¿Podrías intentarlo de nuevo en unos minutos? Si el problema persiste, puedes llamar directamente al salón.`;
         await statisticsManager.incrementFailedOperations();
         await LogError(
@@ -2738,7 +2778,8 @@ class Conversation {
         );
       }
     } catch (ex) {
-      // Log de error con el mensaje y el stack trace del error
+      DoLog(`Error crítico durante el procesamiento: ${ex.message}`);
+      DoLog(`Stack trace: ${ex.stack}`);
       await LogError(
         this.from,
         `Error al procesar la cita`,
@@ -2748,10 +2789,10 @@ class Conversation {
       );
     }
 
-    DoLog(rtn.message);
+    DoLog(`Finalizando ProcesarCita. Mensaje final: ${rtn.message}`);
     this.AddMsg(rtn);
     return "";
-  }
+}
 
   async ProcesarCancelacionCita(gpt) {
     let partes = gpt.split(" ");
