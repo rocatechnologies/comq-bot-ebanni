@@ -728,30 +728,62 @@ app.get("/chathistories", async (req, res) => {
 
 app.get("/full-history/:from", async (req, res) => {
   try {
+    // Obtener el parámetro `from` de la URL
     const from = req.params.from;
 
-    const [chatHistories, surveyResponses, appointments, logs] = 
+    // Realizar consultas paralelas a las colecciones incluyendo logs
+    const [chatHistories, surveyResponses, appointments, logs] =
       await Promise.all([
         ChatHistory.find({ from }),
         SurveyResponse.find({ phoneNumber: from }),
         Appointments.find({ clientPhone: from }),
-        Logs.find({ from, endedAt: { $ne: null } })
+        Logs.find({ from, endedAt: { $ne: null } }), // Solo buscar logs completados
       ]);
+
+    // Función para resolver nombres a partir de ObjectIDs
+    const resolveNames = async () => {
+      const userIds = [
+        ...new Set(appointments.map((a) => a.userInfo.toString())),
+      ];
+      const centerIds = [
+        ...new Set(appointments.map((a) => a.centerInfo.toString())),
+      ];
+
+      const [users, centers] = await Promise.all([
+        Users.find({ _id: { $in: userIds } }),
+        Centers.find({ _id: { $in: centerIds } }),
+      ]);
+
+      const userMap = users.reduce((map, user) => {
+        map[user._id.toString()] = user.name;
+        return map;
+      }, {});
+
+      const centerMap = centers.reduce((map, center) => {
+        map[center._id.toString()] = center.centerName;
+        return map;
+      }, {});
+
+      return { userMap, centerMap };
+    };
 
     const { userMap, centerMap } = await resolveNames();
 
-    const formattedAppointments = appointments.map((appointment) => ({
-      date: appointment.date,
-      initTime: appointment.initTime,
-      finalTime: appointment.finalTime,
-      clientName: appointment.clientName,
-      services: appointment.services.map((service) => service.serviceName),
-      userInfo: userMap[appointment.userInfo.toString()] || "N/A",
-      centerInfo: centerMap[appointment.centerInfo.toString()] || "N/A",
-      status: appointment.status,
-      createdBy: appointment.createdBy,
-      createdAt: appointment.createdAt,
-    }));
+    // Formatear las citas en `appointments`
+    const formattedAppointments = appointments.map((appointment) => {
+      return {
+        date: appointment.date,
+        initTime: appointment.initTime,
+        finalTime: appointment.finalTime,
+        clientName: appointment.clientName,
+        services: appointment.services.map((service) => service.serviceName),
+        userInfo: userMap[appointment.userInfo.toString()] || "N/A",
+        centerInfo: centerMap[appointment.centerInfo.toString()] || "N/A",
+        status: appointment.status,
+        createdBy: appointment.createdBy,
+        createdAt: appointment.createdAt,
+      };
+    });
 
     // Formatear los logs manteniendo el mensaje como string completo
     const formattedLogs = logs.map((log) => ({
@@ -765,15 +797,24 @@ app.get("/full-history/:from", async (req, res) => {
       }))
     }));
 
+    // Respuesta con el historial completo
     const fullHistory = {
-      chatHistories: chatHistories.map(c => c.toObject()),
-      surveyResponses: surveyResponses.map(r => r.toObject()),
+      chatHistories: chatHistories.map((conversation) =>
+        conversation.toObject()
+      ),
+      surveyResponses: surveyResponses.map((response) => response.toObject()),
       appointments: formattedAppointments,
-      logs: formattedLogs
+      logs: formattedLogs,
     };
 
-    res.send(JSON.stringify(fullHistory, null, 2));
-    
+    res.send(`
+      <html>
+        <body>
+          <h2>Historial Completo de ${from}</h2>
+          <pre>${JSON.stringify(fullHistory, null, 2)}</pre>
+        </body>
+      </html>
+    `);
   } catch (error) {
     console.error("Error al obtener el historial completo del cliente:", error);
     res.status(500).send("Error al obtener el historial completo del cliente");
