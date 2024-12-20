@@ -2091,59 +2091,59 @@ class Conversation {
       DoLog(gpt.message);
     }
     let rtn = "";
-    switch (gpt.GPT) {
-      case GPTEnum.SERV:
-        rtn = await this.ProcesarSolicitudDeServicio(gpt.message);
-        break;
-      case GPTEnum.SPECIALITY:
-        rtn = await this.ProcesarSpeciality(gpt.message);
-        break;
-      case GPTEnum.CENTROID:
-        rtn = await this.ProcesarCentro(gpt.message);
-        break;
-      case GPTEnum.LISTAPELUQ:
-        rtn = await this.ProcesarPeluquero(gpt.message);
-        break;
-      case GPTEnum.GUARDACITA:
-        rtn = await this.ProcesarCita(gpt.message);
-        break;
-      case GPTEnum.CANCELACITA:
-        rtn = await this.ProcesarCancelacionCita(gpt.message);
-        break;
-      case GPTEnum.CONSULTHOR:
-        //console.log("CONSULTHOR ejecutado");
-        rtn = await this.ProcesarConsultarHorario(gpt.message);
-        break;
-      case GPTEnum.BUSCARCITA:
-        rtn = await this.buscarCitas(gpt.message);
-        break;
-      //case GPTEnum.HORACOMIDA:
-      //rtn = await this.ProcesarSolicitudDeHoraDeComida(gpt.message);
-      //break;
-      //case GPTEnum.BAJAPELUQ:
-      //rtn = await this.ProcesarBajaPeluquero(gpt.message);
-      //break;
-      //case GPTEnum.CAMBIOHORARIO:
-      // rtn = await this.ProcesarModificacionCita(gpt.message)
-      //break;
-      case GPTEnum.SALON:
-        rtn = await this.ProcesarSalon(gpt.message);
-        break;
-      case GPTEnum.MODCITA:
-        //rtn = `Para modificar tu cita, por favor cancela tu cita antigua y pide una nueva. Gracias.`
-        rtn = await this.ProcesarModificacionCita(gpt.message);
-        break;
-      case GPTEnum.CENTROINFO:
-        rtn = await this.ProcesarInfoCentro(gpt.message);
-        break;
-      case GPTEnum.FLOWCITA:
-        rtn = await this.ProcesarFlow(gpt.message);
-        break;
-      case GPTEnum.NONE:
-        rtn = gpt.message;
-        break;
+    
+    try {
+      switch (gpt.GPT) {
+        case GPTEnum.SERV:
+          rtn = await this.ProcesarSolicitudDeServicio(gpt.message);
+          break;
+        case GPTEnum.SPECIALITY:
+          rtn = await this.ProcesarSpeciality(gpt.message);
+          break;
+        case GPTEnum.CENTROID:
+          rtn = await this.ProcesarCentro(gpt.message);
+          break;
+        case GPTEnum.LISTAPELUQ:
+          rtn = await this.ProcesarPeluquero(gpt.message);
+          break;
+        case GPTEnum.GUARDACITA:
+          rtn = await this.ProcesarCita(gpt.message);
+          break;
+        case GPTEnum.CANCELACITA:
+          rtn = await this.ProcesarCancelacionCita(gpt.message);
+          break;
+        case GPTEnum.CONSULTHOR:
+          rtn = await this.ProcesarConsultarHorario(gpt.message);
+          break;
+        case GPTEnum.BUSCARCITA:
+          rtn = await this.buscarCitas(gpt.message);
+          break;
+        case GPTEnum.MODCITA:
+          rtn = await this.ProcesarModificacionCita(gpt.message);
+          break;
+        case GPTEnum.SALON:
+          rtn = await this.ProcesarSalon(gpt.message);
+          break;
+        case GPTEnum.CENTROINFO:
+          rtn = await this.ProcesarInfoCentro(gpt.message);
+          break;
+        case GPTEnum.NONE:
+          rtn = gpt.message;
+          break;
+      }
+      return rtn;
+    } catch (error) {
+      // Intentar corregir y reprocesar el comando
+      try {
+        DoLog(`Error detectado en comando ${gpt.GPT}: ${error.message}`, Log.Error);
+        rtn = await ErrorHandler.handleCommandError(gpt.message, error, this);
+        return rtn;
+      } catch (correctionError) {
+        // Si falla la corrección, registrar el error y continuar con el manejo normal de errores
+        DoLog(`Error en la corrección del comando: ${correctionError}`, Log.Error);
+        throw error; // Relanzar el error original si la corrección falla
+      }
     }
-    return rtn;
   }
 
   GetFull() {
@@ -4807,5 +4807,70 @@ class CommandQueue {
     }
 
     return rtn;
+  }
+}
+
+class ErrorHandler {
+  static get commandExamples() {
+    return {
+    LISTAPELUQ: "LISTAPELUQ 2024-12-25T10:00:00Z Maria",
+    GUARDACITA: "GUARDACITA | Corte de pelo | 2024-12-25T10:00:00+01:00 | Nervión Señoras | Maria | Juan Pérez",
+    SERV: "SERV corte de pelo",
+    SPECIALITY: "SPECIALITY Señora",
+    CENTROID: "CENTROID Nervión Señoras",
+    CONSULTHOR: "CONSULTHOR 2024-12-25T00:00:00Z Maria",
+    MODCITA: "MODCITA 12/25/2024",
+    CANCELACITA: "CANCELACITA 12/25/2024",
+    CENTROINFO: "CENTROINFO Nervión Señoras"
+  };
+  }
+
+  static async handleCommandError(command, error, conversation) {
+    try {
+      // Extraer el tipo de comando del comando original
+      const commandType = Object.keys(ErrorHandler.commandExamples).find(cmd => command.includes(cmd));
+      
+      if (!commandType) {
+        throw new Error("Tipo de comando no reconocido");
+      }
+
+      // Construir el mensaje para ChatGPT
+      const prompt = `Has recibido un comando "${command}" que ha producido el siguiente error: "${error.message}".
+                     El formato correcto para este tipo de comando debería ser como este ejemplo: "${ErrorHandler.commandExamples[commandType]}".
+                     Por favor, analiza el error y devuelve el comando corregido manteniendo los datos originales pero en el formato correcto.
+                     Solo devuelve el comando corregido, sin explicaciones adicionales.`;
+
+      // Obtener la corrección de ChatGPT
+      const correctedCommand = await ChatGPT.SendToGPT(prompt, false);
+
+      if (!correctedCommand || correctedCommand.trim() === "") {
+        throw new Error("No se pudo obtener una corrección válida");
+      }
+
+      // Log de la corrección
+      DoLog(`Comando original: ${command}`);
+      DoLog(`Comando corregido: ${correctedCommand}`);
+
+      // Crear un nuevo mensaje del sistema para informar de la corrección
+      const systemMsg = new Message(WhoEnum.System);
+      systemMsg.message = `Se detectó y corrigió un error en el comando. Reintentando con el comando corregido.`;
+      conversation.AddMsg(systemMsg);
+
+      // Procesar el comando corregido
+      let gpt = new Message(WhoEnum.ChatGPT);
+      gpt.message = correctedCommand;
+      return await conversation.ProcessOne(gpt);
+
+    } catch (handlingError) {
+      DoLog(`Error en el manejo de errores: ${handlingError}`, Log.Error);
+      await LogError(
+        conversation.from,
+        "Error en el sistema de corrección de comandos",
+        handlingError,
+        conversation.salonID,
+        conversation.salonNombre
+      );
+      throw handlingError;
+    }
   }
 }
