@@ -401,7 +401,7 @@ GUARDACITA: para guardar la cita en la base de datos
 MODCITA: para modificar una cita.
 CANCELACITA: para cancelar una cita.
 CENTROINFO: para obtener la información de un centro.
-Cuando el cliente hace una consulta que contenga MÚLTIPLES elementos de información, debes generar TODOS los comandos correspondientes uno en cada linea.
+Cuando el cliente hace una consulta que contenga MÚLTIPLES elementos de información, debes generar TODOS los comandos correspondientes uno en cada linea!!!!!!!
 A la hora de escribir comandos, no uses [].
 
 VERIFICA LA DISPONIBILIDAD DEL PELUQUERO CON EL SISTEMA SIN COMENTARSELO AL CLIENTE.
