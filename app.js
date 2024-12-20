@@ -983,14 +983,17 @@ app.get("/full-history/:from", async (req, res) => {
       };
     });
 
-    // Formatear los logs
-    const formattedLogs = logs.map((log) => {
-      return {
-        startedAt: log.startedAt,
-        endedAt: log.endedAt,
-        logs: log.logs,
-      };
-    });
+    // Formatear los logs manteniendo el mensaje como string completo
+    const formattedLogs = logs.map((log) => ({
+      startedAt: log.startedAt,
+      endedAt: log.endedAt,
+      logs: log.logs.map(entry => ({
+        timestamp: entry.timestamp,
+        type: entry.type,
+        message: entry.message,
+        _id: entry._id
+      }))
+    }));
 
     // Respuesta con el historial completo
     const fullHistory = {
