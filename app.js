@@ -1916,7 +1916,7 @@ class Conversation {
         DoLog(rtn.message);
 
         // Llamada a LogError con la fecha en la zona horaria de Madrid
-        await LogError(this.from, rtn.message, this.salonID, this.salonNombre);
+        await LogError(curr.from, rtn.message, this.salonID, this.salonNombre);
 
         this.AddMsg(rtn);
         // obtiene la conversacion entera y se la pasa a chatgpt para que reanude
@@ -1933,7 +1933,7 @@ class Conversation {
       } catch (ex) {
         // Captura y registra el error con su mensaje original
         await LogError(
-          this.from,
+          curr.from,
           `Error en DoWatchDog`,
           ex,
           this.salonID,
@@ -2223,7 +2223,7 @@ class Conversation {
   } catch (error) {
     DoLog(`Error al buscar citas próximas: ${error}`, Log.Error);
     await LogError(
-      this.from,
+      curr.from,
       "Error al buscar citas próximas",
       error,
       this.salonID,
@@ -2599,7 +2599,7 @@ class Conversation {
       const errorMsg = `Error al procesar la disponibilidad: ${error.message}`;
       DoLog(errorMsg, Log.Error);
       await LogError(
-        this.from,
+        curr.from,
         errorMsg,
         error,
         this.salonID,
@@ -2771,7 +2771,7 @@ class Conversation {
         rtn.message = `Ha habido un pequeño problema técnico 😅 ¿Podrías intentarlo de nuevo en unos minutos? Si el problema persiste, puedes llamar directamente al salón.`;
         await statisticsManager.incrementFailedOperations();
         await LogError(
-          this.from,
+          curr.from,
           `Error al guardar la cita`,
           rtn.message,
           this.salonID,
@@ -2782,7 +2782,7 @@ class Conversation {
       DoLog(`Error crítico durante el procesamiento: ${ex.message}`);
       DoLog(`Stack trace: ${ex.stack}`);
       await LogError(
-        this.from,
+        curr.from,
         `Error al procesar la cita`,
         ex,
         this.salonID,
@@ -2812,7 +2812,7 @@ class Conversation {
       // Incrementar el contador de operaciones fallidas usando la clase
       await statisticsManager.incrementFailedOperations();
       await LogError(
-        this.from,
+        curr.from,
         `Error al procesar la solicitud`,
         rtn.message,
         this.salonID,
@@ -2993,7 +2993,7 @@ class Conversation {
     } catch (ex) {
       DoLog(`Error al obtener la información del centro: ${ex}`, Log.Error);
       await LogError(
-        this.from,
+        curr.from,
         `Error al procesar la solicitud de información del centro`,
         ex,
         this.salonID,
@@ -3313,7 +3313,7 @@ class Conversation {
         rtn.message = "Hubo un error al iniciar el flow de cita.";
         await statisticsManager.incrementFailedOperations();
         await LogError(
-            this.from,
+          curr.from,
             'Error al procesar flow de cita',
             error,
             this.salonID,
@@ -3470,149 +3470,218 @@ class MongoDB {
     return rtn;
   }
 
-  static async ListarPeluquerosDisponibles(
-    fecha,
-    salonID,
-    nombreServicio,
-    especialidadID,
-    duracionServicio
-  ) {
-    //console.log("entra en ListarPeluquerosDisponibles");
+  static async ListarPeluquerosDisponibles(fecha, salonID, nombreServicio, especialidadID, duracionServicio) {
     let rtn = [];
-    let fechaEvento = moment(fecha);
-    let fechaPeluqFormatoMongo = fechaEvento.format("MM/DD/YYYY");
-
-    /*console.log("fecha:", fecha);
-    console.log("fechaEvento:", fechaEvento);
-    console.log("fechaPeluqFormatoMongo:", fechaPeluqFormatoMongo);
-    console.log("nombreServicio:", nombreServicio);
-    console.log("salonID:", salonID);
-    */
-
-    // Convertimos nombreServicio en un array
-    let serviciosSolicitados = Array.isArray(nombreServicio)
-      ? nombreServicio
-      : [nombreServicio];
-    //console.log("Servicios solicitados:", serviciosSolicitados);
+    console.log("\n=== INICIO LISTAR PELUQUEROS DISPONIBLES ===");
+    console.log("Parámetros recibidos:", {
+        fecha: fecha.format(),
+        salonID,
+        nombreServicio,
+        especialidadID,
+        duracionServicio
+    });
 
     try {
-      for (let peluquero of peluqueros) {
-        if (peluquero.salonID == salonID) {
-          if (MongoDB.PeluqueroTieneServicio(peluquero, nombreServicio)) {
-            if (MongoDB.PeluqueroTieneEspecialidad(peluquero, especialidadID)) {
-              let disponibilidad =
-                await MongoDB.VerificarDisponibilidadPeluquero(
-                  peluquero.peluqueroID,
-                  fecha,
-                  salonID,
-                  duracionServicio
-                );
-              //console.log("disponibilidad",disponibilidad);
-              if (disponibilidad.disponible) {
-                //console.log("peluquero disponible: ", peluquero.peluqueroID);
-                rtn.push(peluquero.peluqueroID);
-              }
-            }
-          }
+        // 1. Validar formato de fecha
+        if (!moment(fecha).isValid()) {
+            console.log("Error: Fecha inválida");
+            throw new Error("Fecha inválida");
         }
-      }
-    } catch (ex) {
-      DoLog(`Error al listar peluqueros disponibles: ${ex}`, Log.Error);
-      await LogError(
-        this.from,
-        `Error al listar peluqueros disponibles`,
-        ex,
-        this.salonID,
-        this.salonNombre
-      );
-      await statisticsManager.incrementFailedOperations();
-      throw ex;
-    }
-    return rtn;
-  }
 
-  static async VerificarDisponibilidadPeluquero(
-    peluqueroID,
-    fecha,
-    salonID,
-    duracionServicio
-  ) {
-    //console.log("VerificarDisponibilidadPeluquero");
-    //console.log("VerificarDisponibilidadPeluquero fecha que recibe:", fecha);
-    let rtn = {
+        // 2. Obtener y validar la hora
+        const hora = fecha.format("HH:mm");
+        const horarioApertura = "10:00";
+        const horarioCierre = "22:00";
+
+        console.log("Validación de horario:", {
+            horasolicitada: hora,
+            apertura: horarioApertura,
+            cierre: horarioCierre
+        });
+
+        if (hora < horarioApertura || hora > horarioCierre) {
+            console.log("Error: Hora fuera de horario comercial");
+            throw new Error("Hora fuera de horario comercial");
+        }
+
+        // 3. Convertir servicios a array si no lo es
+        const serviciosSolicitados = Array.isArray(nombreServicio) ? 
+            nombreServicio : [nombreServicio];
+        
+        console.log("Servicios solicitados:", serviciosSolicitados);
+
+        // 4. Filtrar peluqueros del salón
+        const peluquerosSalon = peluqueros.filter(p => p.salonID === salonID);
+        console.log(`Encontrados ${peluquerosSalon.length} peluqueros en el salón`);
+
+        // 5. Verificar cada peluquero
+        for (const peluquero of peluquerosSalon) {
+            console.log(`\nVerificando peluquero: ${peluquero.name}`);
+
+            // 5.1 Verificar servicios
+            const tieneServicio = this.PeluqueroTieneServicio(peluquero, serviciosSolicitados);
+            console.log(`Tiene servicios requeridos: ${tieneServicio}`);
+
+            // 5.2 Verificar especialidad
+            const tieneEspecialidad = this.PeluqueroTieneEspecialidad(peluquero, especialidadID);
+            console.log(`Tiene especialidad requerida: ${tieneEspecialidad}`);
+
+            if (tieneServicio && tieneEspecialidad) {
+                // 5.3 Verificar disponibilidad
+                const disponibilidad = await this.VerificarDisponibilidadPeluquero(
+                    peluquero.peluqueroID,
+                    fecha,
+                    salonID,
+                    duracionServicio
+                );
+                console.log(`Disponibilidad: ${JSON.stringify(disponibilidad)}`);
+
+                if (disponibilidad.disponible) {
+                    console.log(`Peluquero ${peluquero.name} está disponible`);
+                    rtn.push(peluquero.peluqueroID);
+                }
+            }
+        }
+
+        console.log(`\nPeluqueros disponibles encontrados: ${rtn.length}`);
+        console.log("IDs:", rtn);
+
+    } catch (error) {
+        console.error("Error en ListarPeluquerosDisponibles:", error);
+        console.error("Stack:", error.stack);
+        throw error;
+    }
+
+    console.log("=== FIN LISTAR PELUQUEROS DISPONIBLES ===\n");
+    return rtn;
+}
+
+static async VerificarDisponibilidadPeluquero(peluqueroID, fecha, salonID, duracionServicio) {
+  console.log("\n=== INICIO VERIFICAR DISPONIBILIDAD ===");
+  console.log("Parámetros:", {
+      peluqueroID,
+      fecha: fecha.format(),
+      salonID,
+      duracionServicio
+  });
+
+  let rtn = {
       disponible: false,
       horaEntrada: null,
       horaSalida: null,
-      horariosDisponibles: null,
-    };
-    try {
-      let fechaHoraEvento = moment(fecha);
+      horariosDisponibles: null
+  };
 
-      let fechaPeluqFormatoMongo = fechaHoraEvento.format("MM/DD/YYYY");
-
-      let horaCita = fechaHoraEvento.tz("Europe/Madrid").format("HH:mm");
-      //console.log("VerificarDisponibilidadPeluquero horaCita:", horaCita);
-
-      let horaFinCita = fechaHoraEvento
-        .clone()
-        .add(duracionServicio, "minutes")
-        .tz("Europe/Madrid")
-        .format("HH:mm");
-      //console.log("VerificarDisponibilidadPeluquero horaFINCita:", horaFinCita);
-
-      const initTimeMoment = moment(horaCita, "HH:mm");
-      const finalTimeMoment = moment(horaFinCita, "HH:mm");
-
-      //console.log("fechaPeluqFormatoMongo:", fechaPeluqFormatoMongo);
-      //console.log("peluqueroID:", peluqueroID);
-      //console.log("salonID:", salonID);
-
-      let listaCitas = await Appointments.find({
-        date: fechaPeluqFormatoMongo,
-        userInfo: new ObjectId(peluqueroID),
-        centerInfo: new ObjectId(salonID),
-        status: "confirmed", // Filtrar solo citas confirmadas
+  try {
+      // 1. Formatear fechas y validar
+      const fechaConsulta = moment(fecha);
+      const fechaFormato = fechaConsulta.format("MM/DD/YYYY");
+      const horaInicio = fechaConsulta.format("HH:mm");
+      
+      console.log("Fechas procesadas:", {
+          fechaFormato,
+          horaInicio,
+          timezone: fechaConsulta.tz()
       });
 
-      //console.log("listaCitas:", listaCitas);
-      for (let cita of listaCitas) {
-        const citaInitTime = moment(cita.initTime, "HH:mm");
-        const citaFinalTime = moment(cita.finalTime, "HH:mm");
-        if (
-          initTimeMoment.isBefore(citaFinalTime) &&
-          finalTimeMoment.isAfter(citaInitTime)
-        ) {
-          //console.log("Peluquero no disponible:",peluqueroID,citaInitTime,citaFinalTime,fechaPeluqFormatoMongo);
-          return rtn;
-        }
+      // 2. Calcular hora de finalización
+      const horaFinServicio = fechaConsulta
+          .clone()
+          .add(duracionServicio, 'minutes')
+          .format("HH:mm");
+
+      console.log("Horas de servicio:", {
+          inicio: horaInicio,
+          fin: horaFinServicio,
+          duracion: duracionServicio
+      });
+
+      // 3. Buscar citas existentes
+      const listaCitas = await Appointments.find({
+          date: fechaFormato,
+          userInfo: new ObjectId(peluqueroID),
+          centerInfo: new ObjectId(salonID),
+          status: "confirmed"
+      }).sort({ initTime: 1 });
+
+      console.log(`Se encontraron ${listaCitas.length} citas existentes`);
+
+      // 4. Verificar solapamientos
+      const momentHoraInicio = moment(horaInicio, "HH:mm");
+      const momentHoraFin = moment(horaFinServicio, "HH:mm");
+
+      let hayConflicto = false;
+      for (const cita of listaCitas) {
+          const citaInicio = moment(cita.initTime, "HH:mm");
+          const citaFin = moment(cita.finalTime, "HH:mm");
+
+          console.log(`Verificando solapamiento con cita:`, {
+              citaInicio: cita.initTime,
+              citaFin: cita.finalTime
+          });
+
+          // Verificar si hay solapamiento
+          if (momentHoraInicio.isBefore(citaFin) && momentHoraFin.isAfter(citaInicio)) {
+              console.log("¡Se detectó solapamiento!");
+              hayConflicto = true;
+              break;
+          }
       }
-      rtn.disponible = true;
-      rtn.horaEntrada = horaCita;
-      rtn.horaSalida = horaFinCita;
-      /*console.log(
-        "Peluquero SI disponible:",
-        peluqueroID,
-        horaCita,
-        horaFinCita,
-        fechaPeluqFormatoMongo
-      );*/
-      return rtn;
-    } catch (ex) {
-      DoLog(
-        `Error al verificar la disponibilidad del peluquero: ${ex}`,
-        Log.Error
-      );
-      await LogError(
-        this.from,
-        `Error al verificar peluqueros disponibles`,
-        ex,
-        this.salonID,
-        this.salonNombre
-      );
-      await statisticsManager.incrementFailedOperations();
-      throw ex;
-    }
+
+      // 5. Verificar horario laboral
+      const horarioApertura = moment("10:00", "HH:mm");
+      const horarioCierre = moment("22:00", "HH:mm");
+
+      const estaEnHorarioLaboral = momentHoraInicio.isSameOrAfter(horarioApertura) && 
+                                 momentHoraFin.isSameOrBefore(horarioCierre);
+
+      console.log("Verificación de horario laboral:", {
+          estaEnHorarioLaboral,
+          inicioServicio: momentHoraInicio.format("HH:mm"),
+          finServicio: momentHoraFin.format("HH:mm")
+      });
+
+      // 6. Verificar citas "fuera de horario" (vacaciones, descansos, etc.)
+      const citasFueraHorario = await Appointments.find({
+          date: fechaFormato,
+          userInfo: new ObjectId(peluqueroID),
+          centerInfo: new ObjectId(salonID),
+          status: "confirmed",
+          clientName: "Fuera de horario"
+      });
+
+      let hayFueraHorario = false;
+      for (const cita of citasFueraHorario) {
+          const citaInicio = moment(cita.initTime, "HH:mm");
+          const citaFin = moment(cita.finalTime, "HH:mm");
+          
+          if (momentHoraInicio.isBefore(citaFin) && momentHoraFin.isAfter(citaInicio)) {
+              console.log("¡Se detectó periodo fuera de horario!");
+              hayFueraHorario = true;
+              break;
+          }
+      }
+
+      // 7. Determinar disponibilidad final
+      rtn.disponible = !hayConflicto && estaEnHorarioLaboral && !hayFueraHorario;
+      rtn.horaEntrada = horaInicio;
+      rtn.horaSalida = horaFinServicio;
+
+      console.log("Resultado final:", {
+          disponible: rtn.disponible,
+          horaEntrada: rtn.horaEntrada,
+          horaSalida: rtn.horaSalida
+      });
+
+  } catch (error) {
+      console.error("Error en VerificarDisponibilidadPeluquero:", error);
+      console.error("Stack:", error.stack);
+      throw error;
   }
+
+  console.log("=== FIN VERIFICAR DISPONIBILIDAD ===\n");
+  return rtn;
+}
 
   static async ObtenerNombresPeluquerosPorIDs(idsPeluquero) {
     let rtn = [];
@@ -3818,7 +3887,7 @@ class MongoDB {
     } catch (ex) {
       DoLog(`Error al guardar el evento en MongoDB:${ex}`, Log.Error);
       await LogError(
-        this.from,
+        curr.from,
         `Error al guardar evento`,
         ex,
         this.salonID,
