@@ -85,6 +85,10 @@ const ENCUESTAS = [
   },
 ];
 
+// Guardar las funciones originales
+const originalLog = console.log;
+const originalError = console.error;
+
 // Definición de esquemas de Mongoose
 
 const servicesSchema = new mongoose.Schema({
@@ -240,10 +244,18 @@ const logsSchema = new mongoose.Schema({
     type: Schema.Types.ObjectId,
     default: () => new mongoose.Types.ObjectId(),
   },
-  from: { type: String, required: true, index: true },
-  logs: [{ type: String }],
+  from: { 
+    type: String, 
+    required: true, 
+    index: true  // Añadimos índice para mejor rendimiento
+  },
+  logs: [{
+    timestamp: { type: Date, default: Date.now },
+    type: { type: String, enum: ['log', 'error'], default: 'log' },
+    message: String
+  }],
   startedAt: { type: Date, default: Date.now },
-  endedAt: { type: Date },
+  endedAt: { type: Date }
 });
 
 const Logs = mongoose.model("logs", logsSchema);
@@ -1446,9 +1458,10 @@ async function transcribirAudio(mediaId) {
 }
 
 // Función para registrar logs
-function DoLog(txt, type = Log.Log) {
-  let fecha = new Date().toISOString().replace(/T/, " ").replace(/\..+/, "");
-  let msg = `${fecha} - ${txt}`;
+async function DoLog(txt, type = Log.Log) {
+  // 1. Mantener el log en consola como está ahora
+  const fecha = new Date().toISOString().replace(/T/, " ").replace(/\..+/, "");
+  const msg = `${fecha} - ${txt}`;
 
   switch (type) {
     case Log.Log:
@@ -1459,20 +1472,39 @@ function DoLog(txt, type = Log.Log) {
       break;
   }
 
-  // Get active conversation's phone number
-  const activeConversation = Object.values(conversaciones).find(
-    (conv) => conv.from
-  );
-  if (activeConversation?.from) {
-    // Find or create log document for this phone number
-    Logs.findOneAndUpdate(
-      {
-        from: activeConversation.from,
-        endedAt: null, // Only update active log document
-      },
-      { $push: { logs: msg } },
-      { upsert: true }
-    ).catch((err) => console.error(`Error updating log: ${err}`));
+  // 2. Guardar en MongoDB solo si hay una conversación activa
+  try {
+    // Obtener la conversación activa (la última del objeto conversaciones)
+    const activeConversation = Object.values(conversaciones).find(conv => conv.from);
+    
+    if (activeConversation?.from) {
+      // Buscar el log activo o crear uno nuevo
+      const logType = type === Log.Error ? 'error' : 'log';
+      const update = {
+        $push: {
+          logs: {
+            timestamp: new Date(),
+            type: logType,
+            message: msg
+          }
+        }
+      };
+
+      await Logs.findOneAndUpdate(
+        {
+          from: activeConversation.from,
+          endedAt: null // Solo actualizar logs activos
+        },
+        update,
+        {
+          upsert: true,
+          new: true,
+          setDefaultsOnInsert: true
+        }
+      );
+    }
+  } catch (error) {
+    console.error(`Error guardando log en MongoDB: ${error}`);
   }
 }
 
@@ -1563,6 +1595,87 @@ async function LogSuccess(phoneNumber, message, centerID, centerName) {
   }
 }
 
+// Función auxiliar para obtener la conversación activa
+function getActiveConversation() {
+  return Object.values(conversaciones).find(conv => conv.from);
+}
+
+// Sobreescribir console.log
+console.log = async function(...args) {
+  // Mantener el comportamiento original
+  originalLog.apply(console, args);
+
+  try {
+    const activeConversation = getActiveConversation();
+    if (activeConversation?.from) {
+      const msg = args.map(arg => 
+        typeof arg === 'object' ? JSON.stringify(arg) : arg
+      ).join(' ');
+
+      await Logs.findOneAndUpdate(
+        {
+          from: activeConversation.from,
+          endedAt: null
+        },
+        {
+          $push: {
+            logs: {
+              timestamp: new Date(),
+              type: 'log',
+              message: msg
+            }
+          }
+        },
+        {
+          upsert: true,
+          new: true,
+          setDefaultsOnInsert: true
+        }
+      );
+    }
+  } catch (error) {
+    originalError.call(console, 'Error guardando console.log en MongoDB:', error);
+  }
+};
+
+// Sobreescribir console.error
+console.error = async function(...args) {
+  // Mantener el comportamiento original
+  originalError.apply(console, args);
+
+  try {
+    const activeConversation = getActiveConversation();
+    if (activeConversation?.from) {
+      const msg = args.map(arg => 
+        typeof arg === 'object' ? JSON.stringify(arg) : arg
+      ).join(' ');
+
+      await Logs.findOneAndUpdate(
+        {
+          from: activeConversation.from,
+          endedAt: null
+        },
+        {
+          $push: {
+            logs: {
+              timestamp: new Date(),
+              type: 'error',
+              message: msg
+            }
+          }
+        },
+        {
+          upsert: true,
+          new: true,
+          setDefaultsOnInsert: true
+        }
+      );
+    }
+  } catch (error) {
+    originalError.call(console, 'Error guardando console.error en MongoDB:', error);
+  }
+};
+
 class Conversation {
   static GetConversation(req) {
     let rtn = null;
@@ -1620,6 +1733,7 @@ class Conversation {
     this.modificacionActiva = false; // Indica si estamos en el proceso de modificación
 
     this.logId = new mongoose.Types.ObjectId();
+    this.initializeLog();
     this.commandQueue = new CommandQueue();
   }
 
@@ -1721,7 +1835,24 @@ class Conversation {
     }
 
     // guardar Logs
-    await Logs.updateOne({ _id: this.logId }, { endedAt: this.endedAt });
+    try {
+      // Cerrar el log actual
+      await Logs.findByIdAndUpdate(
+        this.logId,
+        { 
+          endedAt: new Date(),
+          $push: {
+            logs: {
+              timestamp: new Date(),
+              type: 'log',
+              message: `Conversación finalizada después de ${this.messages.length} mensajes`
+            }
+          }
+        }
+      );
+    } catch (error) {
+      console.error(`Error cerrando log: ${error}`);
+    }
 
     // Enviar encuesta y eliminar la conversación
     await WhatsApp.enviarEncuesta(_phone_number_id, this.from);
@@ -1818,6 +1949,20 @@ class Conversation {
       this.from,
       "Lo siento, ha ocurrido un error con el último mensaje, por favor vuelve a enviarmelo."
     );
+  }
+
+  async initializeLog() {
+    if (this.from) {
+      try {
+        const newLog = new Logs({
+          _id: this.logId,
+          from: this.from
+        });
+        await newLog.save();
+      } catch (error) {
+        console.error(`Error inicializando log: ${error}`);
+      }
+    }
   }
 
   async Process() {
