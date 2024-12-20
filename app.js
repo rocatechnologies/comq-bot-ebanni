@@ -728,52 +728,52 @@ app.get("/chathistories", async (req, res) => {
 
 app.get("/full-history/:from", async (req, res) => {
   try {
-    // Obtener el parámetro `from` de la URL
     const from = req.params.from;
 
-    // Realizar consultas paralelas a las colecciones
-    const [chatHistories, surveyResponses, appointments] = await Promise.all([
-      ChatHistory.find({ from }), // Buscar en `chathistories`
-      SurveyResponse.find({ phoneNumber: from }), // Buscar en `surveyResponses`
-      Appointments.find({ clientPhone: from }), // Buscar en `appointments`
-    ]);
+    const [chatHistories, surveyResponses, appointments, logs] = 
+      await Promise.all([
+        ChatHistory.find({ from }),
+        SurveyResponse.find({ phoneNumber: from }),
+        Appointments.find({ clientPhone: from }),
+        Logs.find({ from, endedAt: { $ne: null } })
+      ]);
 
-    // Formatear las conversaciones en `chatHistories`
-    const formattedChatHistories = chatHistories.map((conversation) => {
-      conversation.conversation = conversation.conversation
-        .split("\n")
-        .map((line) => line.trim())
-        .join("\n");
-      return conversation.toObject(); // Convertir a objeto JavaScript
-    });
+    const { userMap, centerMap } = await resolveNames();
 
-    // Formatear las citas en `appointments`
-    const formattedAppointments = appointments.map((appointment) => {
-      return {
-        date: appointment.date,
-        initTime: appointment.initTime,
-        finalTime: appointment.finalTime,
-        clientName: appointment.clientName,
-        services: appointment.services.map((service) => service.serviceName),
-        centerInfo: appointment.centerInfo,
-      };
-    });
+    const formattedAppointments = appointments.map((appointment) => ({
+      date: appointment.date,
+      initTime: appointment.initTime,
+      finalTime: appointment.finalTime,
+      clientName: appointment.clientName,
+      services: appointment.services.map((service) => service.serviceName),
+      userInfo: userMap[appointment.userInfo.toString()] || "N/A",
+      centerInfo: centerMap[appointment.centerInfo.toString()] || "N/A",
+      status: appointment.status,
+      createdBy: appointment.createdBy,
+      createdAt: appointment.createdAt,
+    }));
 
-    // Respuesta con el historial completo
+    // Formatear los logs manteniendo el mensaje como string completo
+    const formattedLogs = logs.map((log) => ({
+      startedAt: log.startedAt,
+      endedAt: log.endedAt,
+      logs: log.logs.map(entry => ({
+        timestamp: entry.timestamp,
+        type: entry.type,
+        message: entry.message,
+        _id: entry._id
+      }))
+    }));
+
     const fullHistory = {
-      chatHistories: formattedChatHistories,
-      surveyResponses: surveyResponses.map((response) => response.toObject()),
+      chatHistories: chatHistories.map(c => c.toObject()),
+      surveyResponses: surveyResponses.map(r => r.toObject()),
       appointments: formattedAppointments,
+      logs: formattedLogs
     };
 
-    res.send(`
-      <html>
-        <body>
-          <h2>Historial Completo de ${from}</h2>
-          <pre>${JSON.stringify(fullHistory, null, 2)}</pre>
-        </body>
-      </html>
-    `);
+    res.send(JSON.stringify(fullHistory, null, 2));
+    
   } catch (error) {
     console.error("Error al obtener el historial completo del cliente:", error);
     res.status(500).send("Error al obtener el historial completo del cliente");
