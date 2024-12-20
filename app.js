@@ -2729,6 +2729,7 @@ class Conversation {
 
     // Guardado de la cita
     DoLog("Iniciando guardado de la cita en la base de datos");
+    this.citaGuardada = false;  // Inicializamos como false por defecto
     let saved = await MongoDB.GuardarEventoEnBD(
       this,
       citaInicioConZona,
@@ -2736,7 +2737,7 @@ class Conversation {
     );
     
     try {
-      if (saved) {
+      if (saved === true) {  // Comparación estricta con true
         DoLog("Cita guardada exitosamente");
         rtn.message = `Comando GUARDACITA confirmado. La cita del cliente ha sido guardada en el sistema.`;
         this.citaGuardada = true;
