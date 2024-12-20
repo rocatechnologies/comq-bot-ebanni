@@ -3374,7 +3374,7 @@ static async VerificarDisponibilidadPeluquero(peluqueroID, fecha, salonID, durac
   };
 
   try {
-      // 1. Formatear fechas y validar
+      // 1. Formatear fechas
       const fechaConsulta = moment(fecha);
       const fechaFormato = fechaConsulta.format("MM/DD/YYYY");
       const horaInicio = fechaConsulta.format("HH:mm");
@@ -3397,28 +3397,51 @@ static async VerificarDisponibilidadPeluquero(peluqueroID, fecha, salonID, durac
           duracion: duracionServicio
       });
 
-      // 3. Buscar citas existentes
-      const listaCitas = await Appointments.find({
+      // 3. Preparar la consulta con validación de ObjectId
+      let query = {
           date: fechaFormato,
-          userInfo: new ObjectId(peluqueroID),
-          centerInfo: new ObjectId(salonID),
           status: "confirmed"
-      }).sort({ initTime: 1 });
+      };
+
+      // Validar y agregar userInfo solo si peluqueroID es válido
+      if (mongoose.Types.ObjectId.isValid(peluqueroID)) {
+          query.userInfo = peluqueroID;
+      } else {
+          console.log("ID de peluquero no válido:", peluqueroID);
+          throw new Error("ID de peluquero no válido");
+      }
+
+      // Validar y agregar centerInfo solo si salonID es válido
+      if (mongoose.Types.ObjectId.isValid(salonID)) {
+          query.centerInfo = salonID;
+      } else {
+          console.log("ID de salón no válido:", salonID);
+          throw new Error("ID de salón no válido");
+      }
+
+      console.log("Query preparada:", query);
+
+      // 4. Buscar citas existentes
+      const listaCitas = await Appointments.find(query).lean();
 
       console.log(`Se encontraron ${listaCitas.length} citas existentes`);
 
-      // 4. Verificar solapamientos
+      // 5. Verificar solapamientos
       const momentHoraInicio = moment(horaInicio, "HH:mm");
       const momentHoraFin = moment(horaFinServicio, "HH:mm");
 
       let hayConflicto = false;
       for (const cita of listaCitas) {
+          // Ignorar citas canceladas
+          if (cita.status === "canceled") continue;
+
           const citaInicio = moment(cita.initTime, "HH:mm");
           const citaFin = moment(cita.finalTime, "HH:mm");
 
           console.log(`Verificando solapamiento con cita:`, {
               citaInicio: cita.initTime,
-              citaFin: cita.finalTime
+              citaFin: cita.finalTime,
+              status: cita.status
           });
 
           // Verificar si hay solapamiento
@@ -3429,7 +3452,7 @@ static async VerificarDisponibilidadPeluquero(peluqueroID, fecha, salonID, durac
           }
       }
 
-      // 5. Verificar horario laboral
+      // 6. Verificar horario laboral
       const horarioApertura = moment("10:00", "HH:mm");
       const horarioCierre = moment("22:00", "HH:mm");
 
@@ -3442,14 +3465,9 @@ static async VerificarDisponibilidadPeluquero(peluqueroID, fecha, salonID, durac
           finServicio: momentHoraFin.format("HH:mm")
       });
 
-      // 6. Verificar citas "fuera de horario" (vacaciones, descansos, etc.)
-      const citasFueraHorario = await Appointments.find({
-          date: fechaFormato,
-          userInfo: new ObjectId(peluqueroID),
-          centerInfo: new ObjectId(salonID),
-          status: "confirmed",
-          clientName: "Fuera de horario"
-      });
+      // 7. Buscar citas fuera de horario con query optimizada
+      query.clientName = "Fuera de horario";
+      const citasFueraHorario = await Appointments.find(query).lean();
 
       let hayFueraHorario = false;
       for (const cita of citasFueraHorario) {
@@ -3463,7 +3481,7 @@ static async VerificarDisponibilidadPeluquero(peluqueroID, fecha, salonID, durac
           }
       }
 
-      // 7. Determinar disponibilidad final
+      // 8. Determinar disponibilidad final
       rtn.disponible = !hayConflicto && estaEnHorarioLaboral && !hayFueraHorario;
       rtn.horaEntrada = horaInicio;
       rtn.horaSalida = horaFinServicio;
@@ -3471,7 +3489,11 @@ static async VerificarDisponibilidadPeluquero(peluqueroID, fecha, salonID, durac
       console.log("Resultado final:", {
           disponible: rtn.disponible,
           horaEntrada: rtn.horaEntrada,
-          horaSalida: rtn.horaSalida
+          horaSalida: rtn.horaSalida,
+          razon: !rtn.disponible ? 
+                 (hayConflicto ? "Conflicto con cita existente" : 
+                  !estaEnHorarioLaboral ? "Fuera de horario laboral" : 
+                  "Periodo marcado como no disponible") : "Disponible"
       });
 
   } catch (error) {
