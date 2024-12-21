@@ -481,6 +481,9 @@ app.use(body_parser.json());
 app.listen(PORT, async () => {
   await connectDB();
   await readDB();
+  console.log('Datos cargados correctamente:');
+  console.log(`- Servicios: ${servicios.length}`);
+  console.log(`- Salones: ${salones.length}`);
 
   DoLog(`Webhook is listening on port: ${PORT}`);
 
@@ -1035,47 +1038,66 @@ class FlowHandler {
   }
 
   async getInitialScreen() {
-      console.log('Preparando pantalla inicial...');
+    console.log('Preparando pantalla inicial del flow...');
+    
+    try {
+        // Obtener servicios con validación
+        const serviciosDisponibles = this.getServiciosDisponibles();
+        console.log(`Servicios cargados: ${JSON.stringify(serviciosDisponibles)}`);
 
-      // Obtener servicios
-      const serviciosDisponibles = this.getServiciosDisponibles();
-      console.log(`Servicios disponibles: ${serviciosDisponibles.length}`);
+        // Obtener centros con validación
+        const centrosDisponibles = this.getCentrosDisponibles();
+        console.log(`Centros cargados: ${JSON.stringify(centrosDisponibles)}`);
 
-      // Obtener centros
-      const centrosDisponibles = this.getCentrosDisponibles();
-      console.log(`Centros disponibles: ${centrosDisponibles.length}`);
+        const response = {
+            screen: "SERVICE_AND_LOCATION",
+            data: {
+                services: serviciosDisponibles,
+                locations: centrosDisponibles,
+                is_services_enabled: true,
+                is_location_enabled: true
+            }
+        };
 
-      const response = {
-          screen: "SERVICE_AND_LOCATION",
-          data: {
-              services: serviciosDisponibles,
-              locations: centrosDisponibles,
-              is_services_enabled: true,
-              is_location_enabled: true
-          }
-      };
+        console.log('Respuesta inicial preparada:', JSON.stringify(response, null, 2));
+        return response;
+    } catch (error) {
+        console.error('Error preparando pantalla inicial:', error);
+        throw error;
+    }
+}
 
-      console.log('Respuesta inicial:', JSON.stringify(response, null, 2));
-      return response;
-  }
+getServiciosDisponibles() {
+    console.log('Obteniendo lista de servicios...');
+    console.log('Servicios disponibles en sistema:', servicios);
+    
+    return servicios
+        .filter(servicio => servicio.servicioID && servicio.servicio)
+        .map(servicio => ({
+            id: servicio.servicioID,
+            title: servicio.servicio,
+            metadata: {
+                duration: servicio.duracion,
+                specialities: servicio.specialities
+            }
+        }));
+}
 
-  getServiciosDisponibles() {
-      return servicios
-          .filter(servicio => servicio.servicioID && servicio.servicio)
-          .map(servicio => ({
-              id: servicio.servicioID,
-              title: servicio.servicio
-          }));
-  }
-
-  getCentrosDisponibles() {
-      return salones
-          .filter(salon => salon.salonID)
-          .map(salon => ({
-              id: salon.salonID,
-              title: salon.nombre
-          }));
-  }
+getCentrosDisponibles() {
+    console.log('Obteniendo lista de centros...');
+    console.log('Centros disponibles en sistema:', salones);
+    
+    return salones
+        .filter(salon => salon.salonID && salon.nombre)
+        .map(salon => ({
+            id: salon.salonID,
+            title: salon.nombre,
+            metadata: {
+                address: salon.address,
+                phone: salon.phoneNumber
+            }
+        }));
+}
 
   async handleDataExchange(screen_id, data) {
       console.log(`Procesando data_exchange para ${screen_id}:`, data);
@@ -1185,17 +1207,24 @@ const flowHandler = new FlowHandler();
 
 app.post("/flow/data", async (req, res) => {
   console.log("\n=== INICIO PROCESAMIENTO FLOW DATA ===");
+  console.log('Request body:', JSON.stringify(req.body, null, 2));
+  
+  let aesKeyBuffer, initialVectorBuffer;
   
   try {
       // 1. Descifrar la petición
-      const { decryptedBody, aesKeyBuffer, initialVectorBuffer } = decryptRequest(req.body);
+      const decryptResult = decryptRequest(req.body);
+      const { decryptedBody } = decryptResult;
+      aesKeyBuffer = decryptResult.aesKeyBuffer;
+      initialVectorBuffer = decryptResult.initialVectorBuffer;
+
       console.log("Cuerpo descifrado:", JSON.stringify(decryptedBody, null, 2));
 
       // 2. Procesar la solicitud usando el FlowHandler
       const response = await flowHandler.processRequest(decryptedBody);
-      
-      // 3. Encriptar y enviar respuesta
       console.log('Respuesta a enviar:', JSON.stringify(response, null, 2));
+
+      // 3. Encriptar y enviar respuesta
       const encryptedResponse = encryptResponse(response, aesKeyBuffer, initialVectorBuffer);
       res.send(encryptedResponse);
 
