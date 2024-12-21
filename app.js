@@ -973,136 +973,155 @@ const ENDPOINT_TIMEOUT = 30000; // 30 segundos
 
 
 app.post("/flow/data", async (req, res) => {
-    const { screen_id, params } = req.body;
-    
-    try {
-        // Descifrar la petición
-        const { decryptedBody, aesKeyBuffer, initialVectorBuffer } = decryptRequest(req.body);
-        console.log("Cuerpo descifrado:", JSON.stringify(decryptedBody, null, 2));
-        
-        let response;
-        
-        // Si no hay screen_id en el cuerpo descifrado, es un health check
-        if (!decryptedBody.screen_id) {
-            console.log('Health check detectado');
-            response = {
-                data: {
-                    status: "active"
-                }
-            };
-        } else {
-            response = {
-                success: true,
-                data: {}
-            };
-            
-            const { screen_id, params } = decryptedBody;
-            console.log('Parámetros descifrados:', { screen_id, params });
-        
-        switch(screen_id) {
-            case "SELECT_SERVICE":
-                // Usar tu lista de servicios existente
-                response = {
-                    services: servicios.map(servicio => ({
-                        id: servicio.servicioID,
-                        title: servicio.servicio,
-                        duration: servicio.duracion
-                    }))
-                };
-                break;
-
-            case "SELECT_LOCATION":
-                // Usar tu lista de salones existente
-                response = {
-                    locations: salones.map(salon => ({
-                        id: salon.salonID,
-                        title: salon.nombre,
-                        address: salon.address
-                    }))
-                };
-                break;
-
-            case "SELECT_DATE":
-                // Generar fechas disponibles para los próximos 30 días
-                // Respetando tu lógica de horarios
-                const dates = [];
-                const startDate = moment();
-                for (let i = 0; i < 30; i++) {
-                    const currentDate = startDate.clone().add(i, 'days');
-                    // Usar tu lógica: abierto todos los días excepto domingos (salvo en diciembre)
-                    if (currentDate.day() !== 0 || currentDate.month() === 11) {
-                        dates.push({
-                            id: currentDate.format('YYYY-MM-DD'),
-                            title: currentDate.format('DD/MM/YYYY')
-                        });
-                    }
-                }
-                response = { available_dates: dates };
-                break;
-
-            case "SELECT_TIME":
-                const { date, service_id, location_id } = params;
-                const fechaISO = moment(date).format();
-                
-                // Usar tu función existente para verificar disponibilidad
-                const disponibilidad = await MongoDB.VerificarDisponibilidadPeluquero(
-                    null, // peluqueroID será null para ver todos los horarios
-                    fechaISO,
-                    location_id,
-                    servicios.find(s => s.servicioID === service_id)?.duracion || 30
-                );
-
-                let timeSlots = [];
-                if (disponibilidad.horariosDisponibles) {
-                    timeSlots = disponibilidad.horariosDisponibles.map(horario => ({
-                        id: horario,
-                        title: horario
-                    }));
-                }
-                
-                response = { available_times: timeSlots };
-                break;
-
-            case "SELECT_STAFF":
-                const { date: staffDate, time, service_id: staffServiceId, location_id: staffLocationId } = params;
-                const fechaStaffISO = moment(`${staffDate} ${time}`).format();
-
-                // Usar tu función existente para listar peluqueros disponibles
-                const peluquerosDisponibles = await MongoDB.ListarPeluquerosDisponibles(
-                    fechaStaffISO,
-                    staffLocationId,
-                    staffServiceId,
-                    "", // especialidadID
-                    servicios.find(s => s.servicioID === staffServiceId)?.duracion || 30
-                );
-
-                // Convertir los IDs a nombres usando tu función existente
-                const nombresPeluqueros = await MongoDB.ObtenerNombresPeluquerosPorIDs(peluquerosDisponibles);
-                
-                response = {
-                    available_staff: peluquerosDisponibles.map((id, index) => ({
-                        id: id,
-                        title: nombresPeluqueros[index]
-                    }))
-                };
-                break;
-        }
+  console.log("\n=== INICIO PROCESAMIENTO FLOW DATA ===");
+  
+  try {
+      // 1. Descifrar la petición
+      const { decryptedBody, aesKeyBuffer, initialVectorBuffer } = decryptRequest(req.body);
+      console.log("Cuerpo descifrado:", JSON.stringify(decryptedBody, null, 2));
+      
+      // 2. Preparar respuesta base
+      let response = {
+          success: true,
+          data: {}
+      };
+      
+      // 3. Si no hay screen_id, es un health check
+      if (!decryptedBody.screen_id) {
+          console.log('Health check detectado');
+          response = {
+              data: {
+                  status: "active"
+              }
+          };
+          const encryptedResponse = encryptResponse(response, aesKeyBuffer, initialVectorBuffer);
+          res.send(encryptedResponse);
+          return;
       }
-      console.log('------------------------------------------');
-        console.log('Respuesta a enviar:', JSON.stringify(response, null, 2));
-        const encryptedResponse = encryptResponse(response, aesKeyBuffer, initialVectorBuffer);
-        res.send(encryptedResponse);
-    } catch (error) {
-        console.error('Error en flow/data:', error);
-        await LogError(
-            req.body?.customer_phone || 'unknown',
-            'Error en flow/data',
-            error,
-            params?.location_id,
-            await MongoDB.ObtenerSalonPorSalonID(params?.location_id)?.nombre
-        );
-        res.status(500).json({ error: 'Error interno del servidor' });
-    }
+
+      // 4. Procesar según el screen_id
+      const { screen_id, params } = decryptedBody;
+      console.log('Procesando pantalla:', screen_id, 'con params:', params);
+
+      switch(screen_id) {
+          case "SERVICE_AND_LOCATION":
+              response.data = {
+                  services: servicios.map(servicio => ({
+                      id: servicio.servicioID,
+                      title: servicio.servicio
+                  })),
+                  locations: salones
+                      .filter(salon => salon.salonID) // Filtrar salones válidos
+                      .map(salon => ({
+                          id: salon.salonID,
+                          title: salon.nombre,
+                          address: salon.address
+                      }))
+              };
+              break;
+
+          case "APPOINTMENT_DETAILS":
+              if (!params.service_id || !params.location_id) {
+                  throw new Error("Faltan parámetros requeridos service_id o location_id");
+              }
+
+              // Obtener fechas disponibles
+              const dates = [];
+              const startDate = moment();
+              for (let i = 0; i < 30; i++) {
+                  const currentDate = startDate.clone().add(i, 'days');
+                  if (currentDate.day() !== 0 || currentDate.month() === 11) {
+                      dates.push({
+                          id: currentDate.format('YYYY-MM-DD'),
+                          title: currentDate.format('DD/MM/YYYY')
+                      });
+                  }
+              }
+
+              // Obtener peluqueros disponibles para el servicio y centro
+              const peluquerosDisponibles = await MongoDB.ListarPeluquerosDisponibles(
+                  moment(), // fecha actual como base
+                  params.location_id,
+                  params.service_id,
+                  "", // especialidadID
+                  servicios.find(s => s.servicioID === params.service_id)?.duracion || 30
+              );
+
+              response.data = {
+                  available_dates: dates,
+                  available_staff: await Promise.all(peluquerosDisponibles.map(async peluqueroId => {
+                      const nombre = await MongoDB.ObtenerNombrePeluqueroPorID(peluqueroId);
+                      return {
+                          id: peluqueroId,
+                          title: nombre
+                      };
+                  })),
+                  available_times: [] // Se llenará cuando se seleccione una fecha
+              };
+              break;
+
+          case "SELECT_TIME":
+              if (!params.date || !params.service_id || !params.location_id || !params.staff_id) {
+                  throw new Error("Faltan parámetros requeridos para consultar horarios");
+              }
+
+              const fechaISO = moment(params.date).format();
+              const disponibilidad = await MongoDB.VerificarDisponibilidadPeluquero(
+                  params.staff_id,
+                  fechaISO,
+                  params.location_id,
+                  servicios.find(s => s.servicioID === params.service_id)?.duracion || 30
+              );
+
+              response.data = {
+                  available_times: disponibilidad.horariosDisponibles
+                      ? disponibilidad.horariosDisponibles.map(horario => ({
+                          id: horario,
+                          title: horario
+                      }))
+                      : []
+              };
+              break;
+
+          default:
+              console.log(`Screen_id no reconocido: ${screen_id}`);
+              throw new Error(`Screen_id no soportado: ${screen_id}`);
+      }
+
+      // 5. Encriptar y enviar respuesta
+      console.log('Respuesta a enviar:', JSON.stringify(response, null, 2));
+      const encryptedResponse = encryptResponse(response, aesKeyBuffer, initialVectorBuffer);
+      res.send(encryptedResponse);
+
+  } catch (error) {
+      console.error('Error en flow/data:', error);
+      await LogError(
+          req.body?.customer_phone || 'unknown',
+          'Error en flow/data',
+          error,
+          params?.location_id || null,
+          await MongoDB.ObtenerSalonPorSalonID(params?.location_id)?.nombre || null
+      );
+
+      // Enviar respuesta de error encriptada
+      const errorResponse = {
+          success: false,
+          error: {
+              message: error.message || 'Error interno del servidor',
+              code: error.statusCode || 500
+          }
+      };
+
+      try {
+          const encryptedError = encryptResponse(errorResponse, aesKeyBuffer, initialVectorBuffer);
+          res.status(error.statusCode || 500).send(encryptedError);
+      } catch (encryptError) {
+          console.error('Error al encriptar respuesta de error:', encryptError);
+          res.status(500).send({ error: 'Error interno del servidor' });
+      }
+  }
+
+  console.log("=== FIN PROCESAMIENTO FLOW DATA ===\n");
 });
 
 // Endpoint para confirmar la cita usando tus funciones existentes
@@ -3010,7 +3029,7 @@ class Conversation {
                                 payload: "FLOW_START",
                                 action: {
                                     flow_action_data: {
-                                        flow_id: "1096594351725070", // ID de tu flow
+                                        flow_id: "2436991323137895", // ID de tu flow
                                         navigate_screen: "SERVICE_AND_LOCATION" // Pantalla inicial
                                     }
                                 }
