@@ -1024,7 +1024,8 @@ class FlowHandler {
       console.log("\n=== PROCESANDO SOLICITUD DE FLOW ===");
       console.log('Datos recibidos:', JSON.stringify(decryptedBody, null, 2));
 
-      const { screen_id, action, params = {} } = decryptedBody;
+      const { screen_id, action, params = {}, data = {}, version } = decryptedBody;
+      console.log(`Procesando acción: ${action}, screen: ${screen_id}, version: ${version}`);
 
       try {
           // Manejar health check
@@ -1037,10 +1038,49 @@ class FlowHandler {
               };
           }
 
-          // Manejar solicitud inicial explícita
-          if (action === "INIT") {
+          // Manejar error notification
+          if (data?.error) {
+              console.log("Error notification recibida:", data.error);
+              return {
+                  data: {
+                      acknowledged: true
+                  }
+              };
+          }
+
+          // Manejar solicitud inicial
+          if (action === "INIT" || !screen_id) {
               console.log("Solicitud inicial detectada");
               return await this.getInitialScreen();
+          }
+
+          // Manejar intercambio de datos
+          if (action === "data_exchange") {
+              console.log("Procesando intercambio de datos para pantalla:", screen_id);
+              console.log("Datos recibidos:", data);
+              
+              switch(screen_id) {
+                  case "SERVICE_AND_LOCATION":
+                      return {
+                          screen: "SERVICE_AND_LOCATION",
+                          data: {
+                              services: servicios.map(servicio => ({
+                                  id: servicio.servicioID,
+                                  title: servicio.servicio
+                              })),
+                              locations: salones
+                                  .filter(salon => salon.salonID)
+                                  .map(salon => ({
+                                      id: salon.salonID,
+                                      title: salon.nombre
+                                  })),
+                              is_location_enabled: Boolean(data.service),
+                              is_date_enabled: Boolean(data.service && data.location),
+                              is_time_enabled: Boolean(data.service && data.location && data.date)
+                          }
+                      };
+                  // Añadir más casos según sea necesario
+              }
           }
 
           // Manejar error notification
@@ -1331,6 +1371,7 @@ class FlowHandler {
 const flowHandler = new FlowHandler();
 
 app.post("/flow/data", async (req, res) => {
+    console.log(`\n=== NUEVA SOLICITUD FLOW DATA (${new Date().toISOString()}) ===`);
     console.log("\n=== INICIO PROCESAMIENTO FLOW DATA ===");
     
     try {
