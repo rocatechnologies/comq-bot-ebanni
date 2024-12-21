@@ -1001,27 +1001,23 @@ class FlowHandler {
   }
 
   async processRequest(decryptedBody) {
-    console.log("\n=== PROCESANDO SOLICITUD DE FLOW ===");
-    console.log('Datos recibidos:', JSON.stringify(decryptedBody, null, 2));
+    console.log("\n=== INICIO PROCESAMIENTO FLOW DATA ===");
+    console.log('Request recibido:', JSON.stringify(decryptedBody, null, 2));
 
     try {
-        const { screen_id, action, data = {} } = decryptedBody;
-        console.log(`Action: ${action}, Screen: ${screen_id}, Data:`, data);
+        const { version, action, screen_id, data = {} } = decryptedBody;
+        console.log(`Version: ${version}, Action: ${action}, Screen: ${screen_id}`);
 
         // Health check
         if (action === "ping") {
-            console.log("Health check detectado");
-            return {
-                data: {
-                    status: "active"
-                }
-            };
+            return { status: "active" };
         }
 
-        // Solicitud inicial o INIT
-        if (action === "INIT") {
-            console.log("Solicitud inicial detectada");
-            const initialData = {
+        // Manejar INIT
+        if (action === "INIT" || !screen_id) {
+            console.log("Inicializando flow...");
+            return {
+                version: "3.0",
                 screen: "SERVICE_AND_LOCATION",
                 data: {
                     services: this.getServiciosDisponibles(),
@@ -1030,25 +1026,21 @@ class FlowHandler {
                     is_location_enabled: true
                 }
             };
-            console.log("Enviando datos iniciales:", JSON.stringify(initialData, null, 2));
-            return initialData;
         }
 
-        // Intercambio de datos
+        // Manejar intercambio de datos
         if (action === "data_exchange") {
-            console.log("Procesando intercambio de datos:", data);
-            const response = await this.handleDataExchange(screen_id, data);
-            console.log("Respuesta del intercambio de datos:", JSON.stringify(response, null, 2));
-            return response;
+            console.log("Procesando data_exchange para:", screen_id);
+            return this.handleDataExchange(screen_id, data);
         }
 
         throw new Error(`Acción no soportada: ${action}`);
 
     } catch (error) {
-        console.error("Error procesando solicitud:", error);
+        console.error("Error procesando flow:", error);
         throw error;
     }
-  }
+}
 
   async getInitialScreen() {
     console.log('Preparando pantalla inicial del flow...');
@@ -3144,13 +3136,13 @@ class Conversation {
                         index: "0",
                         parameters: [
                             {
-                                type: "action",
-                                action: {
-                                    flow_action_data: {
-                                        flow_id: "2436991323137895",
-                                        screen: "SERVICE_AND_LOCATION"
-                                    }
-                                }
+                              type: "flow",
+                              flow: {
+                                  id: "2436991323137895",
+                                  data: {
+                                      screen: "SERVICE_AND_LOCATION"
+                                  }
+                              }
                             }
                         ]
                     }
