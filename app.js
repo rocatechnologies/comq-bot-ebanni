@@ -3923,235 +3923,240 @@ static async VerificarDisponibilidadPeluquero(peluqueroID, fecha, salonID, durac
     return rtn;
   }
 
-  static async BuscarHorariosDisponiblesPeluquero(
-    peluqueroID,
-    fecha,
-    duracionServicio,
-    salonID
-  ) {
-    //console.log("Iniciando búsqueda de horarios disponibles para el peluquero.");
-
-    let horariosDisponibles = [];
-    let horarioApertura = moment("10:00", "HH:mm"); // Hora de apertura: 10:00
-    let horarioCierre = moment("22:00", "HH:mm"); // Hora de cierre: 22:00
-
-    // Obtener la hora actual en Madrid
-    let horaActualMadrid = moment().tz("Europe/Madrid");
-
-    try {
-      // Obtener todas las citas para ese peluquero en el día solicitado
-      let citasDelDia = await Appointments.find({
-        userInfo: new ObjectId(peluqueroID),
-        centerInfo: new ObjectId(salonID),
-        date: moment(fecha).format("MM/DD/YYYY"),
-        status: "confirmed", // Filtrar solo citas confirmadas
-      });
-      /*console.log(
-        "Citas del peluquero:",
+  static async BuscarHorariosDisponiblesPeluquero(peluqueroID, fecha, duracionServicio, salonID) {
+    console.log("\n=== INICIO BUSCAR HORARIOS DISPONIBLES ===");
+    console.log("Parámetros:", {
         peluqueroID,
-        citasDelDia.length,
-        fecha
-      );*/
+        fecha: moment(fecha).format(),
+        duracionServicio,
+        salonID
+    });
 
-      // Ordenar las citas por hora de inicio
-      citasDelDia.sort((a, b) =>
-        moment(a.initTime, "HH:mm").diff(moment(b.initTime, "HH:mm"))
-      );
-      console.log("Citas del día ordenadas:", citasDelDia);
-
-      let ultimaHoraFin = horarioApertura;
-
-      // Iterar sobre cada cita para encontrar huecos disponibles
-      for (let cita of citasDelDia) {
-        let horaInicioCita = moment(cita.initTime, "HH:mm");
-        let horaFinCita = moment(cita.finalTime, "HH:mm");
-
-        // Verificación para evitar horas fuera de orden o superpuestas
-        if (
-          horaInicioCita.isBefore(horarioApertura) ||
-          horaInicioCita.isAfter(horarioCierre) ||
-          horaInicioCita.isSame(horarioCierre)
-        ) {
-          /*console.log(
-            `La cita en ${horaInicioCita.format(
-              "HH:mm"
-            )} está fuera del horario de apertura.`
-          );*/
-          continue;
-        }
-
-        /*console.log(
-          `Verificando espacio entre ${ultimaHoraFin.format(
-            "HH:mm"
-          )} y ${horaInicioCita.format("HH:mm")}`
-        );*/
-
-        // Si hay una franja horaria libre entre el final de la última cita y el inicio de la siguiente
-        if (ultimaHoraFin.isSameOrBefore(horaInicioCita)) {
-          let horaFinServicio = ultimaHoraFin
-            .clone()
-            .add(duracionServicio, "minutes");
-
-          /*console.log(
-            `Posible horario disponible: ${ultimaHoraFin.format(
-              "HH:mm"
-            )} a ${horaFinServicio.format("HH:mm")}`
-          );*/
-
-          // Verificar si la franja es lo suficientemente larga para el servicio y si es una hora futura
-          if (horaFinServicio.isSameOrBefore(horaInicioCita)) {
-            // Dividir la franja en intervalos de 30 minutos y agregar cada uno
-            while (
-              ultimaHoraFin.isBefore(horaInicioCita) &&
-              ultimaHoraFin
-                .clone()
-                .add(duracionServicio, "minutes")
-                .isSameOrBefore(horaInicioCita)
-            ) {
-              horariosDisponibles.push(`${ultimaHoraFin.format("HH:mm")}`);
-              ultimaHoraFin.add(duracionServicio, "minutes"); // Avanzar en intervalos de 30 minutos
-            }
-          }
-        }
-
-        // Actualizar la última hora de finalización a la hora de fin de la cita actual
-        ultimaHoraFin = horaFinCita;
-      }
-
-      // Si hay un espacio libre entre la última cita y el cierre del salón
-      let horaFinServicio = ultimaHoraFin
-        .clone()
-        .add(duracionServicio, "minutes");
-
-      /* console.log(
-        `Verificando espacio final hasta cierre: ${ultimaHoraFin.format(
-          "HH:mm"
-        )} a ${horarioCierre.format("HH:mm")}`
-      );*/
-
-      // Solo verificar si la última hora de fin es menor que la hora de cierre
-      if (ultimaHoraFin.isSameOrBefore(horarioCierre)) {
-        // Dividir el espacio libre en intervalos de 30 minutos hasta la hora de cierre
-        while (
-          ultimaHoraFin.isBefore(horarioCierre) &&
-          ultimaHoraFin
-            .clone()
-            .add(duracionServicio, "minutes")
-            .isSameOrBefore(horarioCierre)
-        ) {
-          horariosDisponibles.push(`${ultimaHoraFin.format("HH:mm")}`);
-          ultimaHoraFin.add(duracionServicio, "minutes"); // Avanzar en intervalos de 30 minutos
-        }
-      } else {
-        //console.log("No hay más espacios disponibles hasta el cierre.");
-      }
-    } catch (ex) {
-      DoLog(
-        `Error al buscar horarios disponibles para el peluquero: ${ex}`,
-        Log.Error
-      );
-      await LogError(
-        this.from,
-        `Error al buscar horarios disponibles para el peluquero`,
-        ex,
-        this.salonID,
-        this.salonNombre
-      );
-      await statisticsManager.incrementFailedOperations();
-      throw ex;
-    }
-
-    console.log("Horarios disponibles:", horariosDisponibles);
-    return horariosDisponibles;
-  }
-
-  static async BuscarHorariosConPeluquerosDisponibles(
-    fecha,
-    salonID,
-    nombreServicio,
-    especialidadID,
-    duracionServicio
-  ) {
-    //console.log("entra en BuscarHorariosConPeluquerosDisponibles");
-    let horariosDisponiblesConPeluquero = [];
-    let horarioApertura = moment(fecha).set({ hour: 10, minute: 0 }); // Hora de apertura: 10:00
-    let horarioCierre = moment(fecha).set({ hour: 22, minute: 0 }); // Hora de cierre: 22:00
-
+    const horariosDisponibles = [];
+    
     try {
-      // Obtener la lista de peluqueros del salón
-      let listaPeluqueros = peluqueros.filter(
-        (peluquero) => peluquero.salonID == salonID
-      );
-
-      //console.log("listaPeluqueros:", listaPeluqueros);
-      // Buscar las franjas horarias disponibles de cada peluquero en el día solicitado
-      for (let peluquero of listaPeluqueros) {
-        if (MongoDB.PeluqueroTieneServicio(peluquero, nombreServicio)) {
-          if (MongoDB.PeluqueroTieneEspecialidad(peluquero, especialidadID)) {
-            let horariosDisponibles =
-              await MongoDB.BuscarHorariosDisponiblesPeluquero(
-                peluquero.peluqueroID,
-                fecha,
-                duracionServicio,
-                salonID
-              );
-            // Agregar la hora de inicio disponible solo si la franja es suficiente para el servicio
-            for (let horario of horariosDisponibles) {
-              //console.log("Comprobamos horario:", horario);
-              let [horaInicio, horaFin] = horario.split(" - "); // Dividir franja en hora de inicio y fin
-              let inicio = moment(horaInicio, "HH:mm");
-              let fin = moment(horaFin, "HH:mm");
-              // Calcular la hora de fin en función de la duración del servicio
-              let horaFinServicio = inicio
-                .clone()
-                .add(duracionServicio, "minutes");
-
-              // Solo agregar el horario si hay tiempo suficiente para el servicio
-              /*console.log(
-                "Comprobamos huecos:",
-                peluquero.name,
-                horaFinServicio,
-                fin
-              );*/
-              //if (
-              //   horaFinServicio.isBefore(fin) ||
-              //   horaFinServicio.isSame(fin)
-              //  ) {
-              horariosDisponiblesConPeluquero.push({
-                hora: inicio.format("HH:mm"),
-                peluqueroNombre: peluquero.name,
-              });
-              //   }
-            }
-          }
+        // 1. Validar IDs
+        if (!mongoose.Types.ObjectId.isValid(peluqueroID)) {
+            console.log("ID de peluquero no válido:", peluqueroID);
+            throw new Error("ID de peluquero no válido");
         }
+        if (!mongoose.Types.ObjectId.isValid(salonID)) {
+            console.log("ID de salón no válido:", salonID);
+            throw new Error("ID de salón no válido");
+        }
+
+        // 2. Configurar horarios base
+        const fechaConsulta = moment(fecha);
+        const fechaFormato = fechaConsulta.format("MM/DD/YYYY");
+        const horarioApertura = moment(fecha).set({ hour: 10, minute: 0 });
+        const horarioCierre = moment(fecha).set({ hour: 22, minute: 0 });
+        const intervalo = 30; // minutos entre cada slot
+
+        console.log("Configuración de horarios:", {
+            fecha: fechaFormato,
+            apertura: horarioApertura.format("HH:mm"),
+            cierre: horarioCierre.format("HH:mm"),
+            intervaloMinutos: intervalo
+        });
+
+        // 3. Preparar query base
+        const queryBase = {
+            date: fechaFormato,
+            status: "confirmed",
+            userInfo: peluqueroID,
+            centerInfo: salonID
+        };
+
+        // 4. Obtener citas normales y fuera de horario
+        const [citasNormales, citasFueraHorario] = await Promise.all([
+            Appointments.find({ 
+                ...queryBase,
+                clientName: { $ne: "Fuera de horario" }
+            }).lean(),
+            Appointments.find({
+                ...queryBase,
+                clientName: "Fuera de horario"
+            }).lean()
+        ]);
+
+        console.log(`Citas encontradas: ${citasNormales.length} normales, ${citasFueraHorario.length} fuera de horario`);
+
+        // 5. Crear mapa de slots ocupados
+        const slotsOcupados = new Set();
+
+        // Procesar citas normales
+        citasNormales.forEach(cita => {
+            const inicio = moment(cita.initTime, "HH:mm");
+            const fin = moment(cita.finalTime, "HH:mm");
+            
+            // Marcar todos los slots dentro de la cita como ocupados
+            let slot = inicio.clone();
+            while (slot.isBefore(fin)) {
+                slotsOcupados.add(slot.format("HH:mm"));
+                slot.add(intervalo, 'minutes');
+            }
+        });
+
+        // Procesar citas fuera de horario
+        const periodosFueraHorario = citasFueraHorario.map(cita => ({
+            inicio: moment(cita.initTime, "HH:mm"),
+            fin: moment(cita.finalTime, "HH:mm")
+        }));
+
+        // 6. Generar slots disponibles
+        let slotActual = horarioApertura.clone();
+        
+        while (slotActual.isBefore(horarioCierre)) {
+            const horaSlot = slotActual.format("HH:mm");
+            const finSlot = slotActual.clone().add(duracionServicio, 'minutes');
+
+            // Verificar si el slot está disponible
+            const slotDisponible = !slotsOcupados.has(horaSlot) && 
+                                 finSlot.isSameOrBefore(horarioCierre) &&
+                                 !periodosFueraHorario.some(periodo => 
+                                     slotActual.isBefore(periodo.fin) && 
+                                     finSlot.isAfter(periodo.inicio)
+                                 );
+
+            if (slotDisponible) {
+                // Verificar si hay suficiente tiempo hasta la siguiente cita
+                const siguienteCitaOcupada = Array.from(slotsOcupados)
+                    .map(hora => moment(hora, "HH:mm"))
+                    .filter(hora => hora.isAfter(slotActual))
+                    .sort((a, b) => a.diff(b))[0];
+
+                const hayEspacioSuficiente = !siguienteCitaOcupada || 
+                    finSlot.isSameOrBefore(siguienteCitaOcupada);
+
+                if (hayEspacioSuficiente) {
+                    horariosDisponibles.push(horaSlot);
+                }
+            }
+
+            slotActual.add(intervalo, 'minutes');
+        }
+
+        console.log("Horarios disponibles encontrados:", horariosDisponibles);
+
+    } catch (error) {
+        console.error("Error en BuscarHorariosDisponiblesPeluquero:", error);
+        console.error("Stack:", error.stack);
+        throw error;
+    }
+
+    console.log("=== FIN BUSCAR HORARIOS DISPONIBLES ===\n");
+    return horariosDisponibles;
+}
+
+static async BuscarHorariosConPeluquerosDisponibles(fecha, salonID, nombreServicio, especialidadID, duracionServicio) {
+  console.log("\n=== INICIO BUSCAR HORARIOS CON PELUQUEROS ===");
+  console.log("Parámetros:", {
+      fecha: moment(fecha).format(),
+      salonID,
+      nombreServicio,
+      especialidadID,
+      duracionServicio
+  });
+
+  let horariosDisponiblesConPeluquero = [];
+
+  try {
+      // 1. Validar IDs y parámetros
+      if (!mongoose.Types.ObjectId.isValid(salonID)) {
+          console.log("ID de salón no válido:", salonID);
+          throw new Error("ID de salón no válido");
       }
 
-      // Ordenar los horarios disponibles por hora
-      horariosDisponiblesConPeluquero.sort((a, b) =>
-        moment(a.hora, "HH:mm").diff(moment(b.hora, "HH:mm"))
-      );
-    } catch (ex) {
-      DoLog(
-        `Error al buscar horarios con peluqueros disponibles: ${ex}`,
-        Log.Error
-      );
-      await LogError(
-        this.from,
-        `Error al buscar horarios con peluqueros disponibles`,
-        ex,
-        this.salonID,
-        this.salonNombre
-      );
-      await statisticsManager.incrementFailedOperations();
-      throw ex;
-    }
-    console.log(
-      "horariosDisponiblesConPeluquero:",
-      horariosDisponiblesConPeluquero
-    );
-    return horariosDisponiblesConPeluquero;
+      // 2. Obtener peluqueros del salón
+      const peluquerosSalon = peluqueros.filter(p => p.salonID === salonID);
+      console.log(`Encontrados ${peluquerosSalon.length} peluqueros en el salón`);
+
+      // 3. Convertir servicios a array si no lo es
+      const serviciosSolicitados = Array.isArray(nombreServicio) ? 
+          nombreServicio : [nombreServicio];
+
+      // 4. Filtrar peluqueros por servicio y especialidad
+      const peluquerosCalificados = peluquerosSalon.filter(peluquero => {
+          const tieneServicio = this.PeluqueroTieneServicio(peluquero, serviciosSolicitados);
+          const tieneEspecialidad = this.PeluqueroTieneEspecialidad(peluquero, especialidadID);
+          
+          console.log(`Peluquero ${peluquero.name}:`, {
+              tieneServicio,
+              tieneEspecialidad
+          });
+
+          return tieneServicio && tieneEspecialidad;
+      });
+
+      console.log(`${peluquerosCalificados.length} peluqueros cumplen los requisitos`);
+
+      // 5. Obtener horarios disponibles para cada peluquero calificado
+      const horariosPromises = peluquerosCalificados.map(async peluquero => {
+          try {
+              const horarios = await this.BuscarHorariosDisponiblesPeluquero(
+                  peluquero.peluqueroID,
+                  fecha,
+                  duracionServicio,
+                  salonID
+              );
+
+              return horarios.map(hora => ({
+                  hora,
+                  peluqueroNombre: peluquero.name,
+                  peluqueroID: peluquero.peluqueroID
+              }));
+          } catch (error) {
+              console.error(`Error al buscar horarios para ${peluquero.name}:`, error);
+              return [];
+          }
+      });
+
+      // 6. Esperar todos los resultados
+      const resultadosHorarios = await Promise.all(horariosPromises);
+      
+      // 7. Aplanar y ordenar resultados
+      horariosDisponiblesConPeluquero = resultadosHorarios
+          .flat()
+          .sort((a, b) => {
+              // Primero ordenar por hora
+              const horaComp = moment(a.hora, "HH:mm").diff(moment(b.hora, "HH:mm"));
+              if (horaComp !== 0) return horaComp;
+              // Si las horas son iguales, ordenar por nombre de peluquero
+              return a.peluqueroNombre.localeCompare(b.peluqueroNombre);
+          });
+
+      // 8. Agrupar por hora para mejor visualización
+      const horariosAgrupados = horariosDisponiblesConPeluquero.reduce((acc, curr) => {
+          const horaExistente = acc.find(h => h.hora === curr.hora);
+          if (horaExistente) {
+              horaExistente.peluqueros.push({
+                  nombre: curr.peluqueroNombre,
+                  id: curr.peluqueroID
+              });
+          } else {
+              acc.push({
+                  hora: curr.hora,
+                  peluqueros: [{
+                      nombre: curr.peluqueroNombre,
+                      id: curr.peluqueroID
+                  }]
+              });
+          }
+          return acc;
+      }, []);
+
+      console.log("Resultados agrupados:", horariosAgrupados);
+      console.log(`Total de slots disponibles: ${horariosDisponiblesConPeluquero.length}`);
+
+  } catch (error) {
+      console.error("Error en BuscarHorariosConPeluquerosDisponibles:", error);
+      console.error("Stack:", error.stack);
+      throw error;
   }
+
+  console.log("=== FIN BUSCAR HORARIOS CON PELUQUEROS ===\n");
+  return horariosDisponiblesConPeluquero;
+}
 
   static async BuscarDisponibilidadSiguienteSemana(
     peluqueroID,
