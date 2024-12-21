@@ -1959,6 +1959,9 @@ class Conversation {
       case GPTEnum.CENTROINFO:
         rtn = await this.ProcesarInfoCentro(gpt.message);
         break;
+        case GPTEnum.FLOWCITA:
+          rtn = await this.ProcesarFlow(gpt.message);
+          break;
       case GPTEnum.NONE:
         rtn = gpt.message;
         break;
