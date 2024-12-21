@@ -821,6 +821,153 @@ app.get("/full-history/:from", async (req, res) => {
   }
 });
 
+// Definición de la excepción personalizada
+class FlowEndpointException extends Error {
+  constructor(statusCode, message) {
+      super(message);
+      this.name = this.constructor.name;
+      this.statusCode = statusCode;
+  }
+}
+
+const decryptRequest = (body) => {
+  console.log('==========================================');
+  console.log('INICIANDO PROCESO DE DESCIFRADO');
+  console.log('------------------------------------------');
+  
+  // Log de variables de entorno
+  console.log('Verificando configuración:');
+  console.log('PRIVATE_KEY existe:', !!process.env.PRIVATE_KEY);
+  console.log('PASSPHRASE existe:', !!process.env.PASSPHRASE);
+  console.log('------------------------------------------');
+
+  const { encrypted_aes_key, encrypted_flow_data, initial_vector } = body;
+  
+  // Log de datos recibidos
+  console.log('Datos recibidos:');
+  console.log('- encrypted_aes_key presente:', !!encrypted_aes_key);
+  console.log('- encrypted_flow_data presente:', !!encrypted_flow_data);
+  console.log('- initial_vector presente:', !!initial_vector);
+  console.log('------------------------------------------');
+
+  // Formateo de la clave privada
+  const privateKeyString = process.env.PRIVATE_KEY.replace(/\\n/g, '\n');
+  console.log('Clave privada formateada (primeros 50 caracteres):');
+  console.log(privateKeyString.substring(0, 50) + '...');
+  console.log('------------------------------------------');
+  
+  try {
+      console.log('Creando objeto de clave privada...');
+      const privateKey = crypto.createPrivateKey({ 
+          key: privateKeyString, 
+          passphrase: process.env.PASSPHRASE 
+      });
+      console.log('Clave privada creada exitosamente');
+      console.log('------------------------------------------');
+
+      console.log('Iniciando descifrado de clave AES...');
+      const decryptedAesKey = crypto.privateDecrypt(
+          {
+              key: privateKey,
+              padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
+              oaepHash: "sha256",
+          },
+          Buffer.from(encrypted_aes_key, "base64")
+      );
+      console.log('Clave AES descifrada exitosamente');
+      console.log('------------------------------------------');
+
+      console.log('Preparando descifrado de datos del flow...');
+      const flowDataBuffer = Buffer.from(encrypted_flow_data, "base64");
+      const initialVectorBuffer = Buffer.from(initial_vector, "base64");
+      const TAG_LENGTH = 16;
+      const encrypted_flow_data_body = flowDataBuffer.subarray(0, -TAG_LENGTH);
+      const encrypted_flow_data_tag = flowDataBuffer.subarray(-TAG_LENGTH);
+
+      console.log('Creando decipher con AES-128-GCM...');
+      const decipher = crypto.createDecipheriv(
+          "aes-128-gcm",
+          decryptedAesKey,
+          initialVectorBuffer
+      );
+      decipher.setAuthTag(encrypted_flow_data_tag);
+
+      console.log('Descifrando datos del flow...');
+      const decryptedJSONString = Buffer.concat([
+          decipher.update(encrypted_flow_data_body),
+          decipher.final(),
+      ]).toString("utf-8");
+      console.log('Datos del flow descifrados exitosamente');
+      console.log('Datos descifrados:', decryptedJSONString);
+      console.log('------------------------------------------');
+
+      const decryptedBody = JSON.parse(decryptedJSONString);
+      console.log('Objeto JSON parseado exitosamente:', decryptedBody);
+      console.log('==========================================');
+
+      return {
+          decryptedBody,
+          aesKeyBuffer: decryptedAesKey,
+          initialVectorBuffer,
+      };
+  } catch (error) {
+      console.error('==========================================');
+      console.error('ERROR EN EL PROCESO DE DESCIFRADO');
+      console.error('------------------------------------------');
+      console.error('Tipo de error:', error.constructor.name);
+      console.error('Mensaje de error:', error.message);
+      console.error('Stack trace:', error.stack);
+      console.error('------------------------------------------');
+      console.error('Código de error:', error.code);
+      console.error('==========================================');
+      
+      throw new FlowEndpointException(
+          421,
+          "Failed to decrypt the request. Please verify your private key."
+      );
+  }
+};
+
+const encryptResponse = (response, aesKeyBuffer, initialVectorBuffer) => {
+  console.log('Iniciando encriptación de respuesta...');
+  try {
+      // Invertir el vector inicial
+      const flipped_iv = [];
+      for (const pair of initialVectorBuffer.entries()) {
+          flipped_iv.push(~pair[1]);
+      }
+      console.log('Vector inicial invertido creado');
+
+      // Cifrar los datos de respuesta
+      const cipher = crypto.createCipheriv(
+          "aes-128-gcm",
+          aesKeyBuffer,
+          Buffer.from(flipped_iv)
+      );
+      console.log('Cipher creado correctamente');
+
+      const encryptedResponse = Buffer.concat([
+          cipher.update(JSON.stringify(response), "utf-8"),
+          cipher.final(),
+          cipher.getAuthTag(),
+      ]).toString("base64");
+      
+      console.log('Respuesta encriptada exitosamente');
+      return encryptedResponse;
+  } catch (error) {
+      console.error('Error en encryptResponse:', error);
+      throw new Error('Failed to encrypt response');
+  }
+};
+
+// Variables para caché
+let cachedServices = null;
+let cachedLocations = null;
+let lastCacheUpdate = null;
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutos
+const ENDPOINT_TIMEOUT = 30000; // 30 segundos
+
+
 app.post("/flow/data", async (req, res) => {
     const { screen_id, params } = req.body;
     
@@ -1013,292 +1160,7 @@ app.post("/flow/confirm-appointment", async (req, res) => {
     }
 });
 
-// Definición de la excepción personalizada
-class FlowEndpointException extends Error {
-    constructor(statusCode, message) {
-        super(message);
-        this.name = this.constructor.name;
-        this.statusCode = statusCode;
-    }
-}
 
-const decryptRequest = (body) => {
-    console.log('==========================================');
-    console.log('INICIANDO PROCESO DE DESCIFRADO');
-    console.log('------------------------------------------');
-    
-    // Log de variables de entorno
-    console.log('Verificando configuración:');
-    console.log('PRIVATE_KEY existe:', !!process.env.PRIVATE_KEY);
-    console.log('PASSPHRASE existe:', !!process.env.PASSPHRASE);
-    console.log('------------------------------------------');
-
-    const { encrypted_aes_key, encrypted_flow_data, initial_vector } = body;
-    
-    // Log de datos recibidos
-    console.log('Datos recibidos:');
-    console.log('- encrypted_aes_key presente:', !!encrypted_aes_key);
-    console.log('- encrypted_flow_data presente:', !!encrypted_flow_data);
-    console.log('- initial_vector presente:', !!initial_vector);
-    console.log('------------------------------------------');
-
-    // Formateo de la clave privada
-    const privateKeyString = process.env.PRIVATE_KEY.replace(/\\n/g, '\n');
-    console.log('Clave privada formateada (primeros 50 caracteres):');
-    console.log(privateKeyString.substring(0, 50) + '...');
-    console.log('------------------------------------------');
-    
-    try {
-        console.log('Creando objeto de clave privada...');
-        const privateKey = crypto.createPrivateKey({ 
-            key: privateKeyString, 
-            passphrase: process.env.PASSPHRASE 
-        });
-        console.log('Clave privada creada exitosamente');
-        console.log('------------------------------------------');
-
-        console.log('Iniciando descifrado de clave AES...');
-        const decryptedAesKey = crypto.privateDecrypt(
-            {
-                key: privateKey,
-                padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
-                oaepHash: "sha256",
-            },
-            Buffer.from(encrypted_aes_key, "base64")
-        );
-        console.log('Clave AES descifrada exitosamente');
-        console.log('------------------------------------------');
-
-        console.log('Preparando descifrado de datos del flow...');
-        const flowDataBuffer = Buffer.from(encrypted_flow_data, "base64");
-        const initialVectorBuffer = Buffer.from(initial_vector, "base64");
-        const TAG_LENGTH = 16;
-        const encrypted_flow_data_body = flowDataBuffer.subarray(0, -TAG_LENGTH);
-        const encrypted_flow_data_tag = flowDataBuffer.subarray(-TAG_LENGTH);
-
-        console.log('Creando decipher con AES-128-GCM...');
-        const decipher = crypto.createDecipheriv(
-            "aes-128-gcm",
-            decryptedAesKey,
-            initialVectorBuffer
-        );
-        decipher.setAuthTag(encrypted_flow_data_tag);
-
-        console.log('Descifrando datos del flow...');
-        const decryptedJSONString = Buffer.concat([
-            decipher.update(encrypted_flow_data_body),
-            decipher.final(),
-        ]).toString("utf-8");
-        console.log('Datos del flow descifrados exitosamente');
-        console.log('Datos descifrados:', decryptedJSONString);
-        console.log('------------------------------------------');
-
-        const decryptedBody = JSON.parse(decryptedJSONString);
-        console.log('Objeto JSON parseado exitosamente:', decryptedBody);
-        console.log('==========================================');
-
-        return {
-            decryptedBody,
-            aesKeyBuffer: decryptedAesKey,
-            initialVectorBuffer,
-        };
-    } catch (error) {
-        console.error('==========================================');
-        console.error('ERROR EN EL PROCESO DE DESCIFRADO');
-        console.error('------------------------------------------');
-        console.error('Tipo de error:', error.constructor.name);
-        console.error('Mensaje de error:', error.message);
-        console.error('Stack trace:', error.stack);
-        console.error('------------------------------------------');
-        console.error('Código de error:', error.code);
-        console.error('==========================================');
-        
-        throw new FlowEndpointException(
-            421,
-            "Failed to decrypt the request. Please verify your private key."
-        );
-    }
-};
-
-const encryptResponse = (response, aesKeyBuffer, initialVectorBuffer) => {
-    console.log('Iniciando encriptación de respuesta...');
-    try {
-        // Invertir el vector inicial
-        const flipped_iv = [];
-        for (const pair of initialVectorBuffer.entries()) {
-            flipped_iv.push(~pair[1]);
-        }
-        console.log('Vector inicial invertido creado');
-
-        // Cifrar los datos de respuesta
-        const cipher = crypto.createCipheriv(
-            "aes-128-gcm",
-            aesKeyBuffer,
-            Buffer.from(flipped_iv)
-        );
-        console.log('Cipher creado correctamente');
-
-        const encryptedResponse = Buffer.concat([
-            cipher.update(JSON.stringify(response), "utf-8"),
-            cipher.final(),
-            cipher.getAuthTag(),
-        ]).toString("base64");
-        
-        console.log('Respuesta encriptada exitosamente');
-        return encryptedResponse;
-    } catch (error) {
-        console.error('Error en encryptResponse:', error);
-        throw new Error('Failed to encrypt response');
-    }
-};
-
-// Variables para caché
-let cachedServices = null;
-let cachedLocations = null;
-let lastCacheUpdate = null;
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutos
-const ENDPOINT_TIMEOUT = 30000; // 30 segundos
-
-app.post("/flow/data", async (req, res) => {
-    console.log('\n==========================================');
-    console.log('NUEVA PETICIÓN A /FLOW/DATA:', new Date().toISOString());
-    console.log('------------------------------------------');
-    
-    try {
-        const { decryptedBody, aesKeyBuffer, initialVectorBuffer } = decryptRequest(req.body);
-        console.log("Cuerpo descifrado:", JSON.stringify(decryptedBody, null, 2));
-        
-        let response;
-        
-        // Health check request
-        if (decryptedBody.action === 'ping') {
-            console.log('Health check (ping) detectado');
-            response = {
-                data: {
-                    status: "active"
-                }
-            };
-        }
-        // Initial request cuando se abre el flow
-        else if (decryptedBody.action === 'INIT') {
-            console.log('Petición inicial (INIT) detectada');
-            response = {
-                screen: "SERVICE_AND_LOCATION",
-                data: {
-                    services: servicios.map(servicio => ({
-                        id: servicio.servicioID.toString(),
-                        title: servicio.servicio
-                    })),
-                    locations: salones
-                        .filter(salon => ["Nervion Caballeros", "Nervion Señoras", "Duque", "Sevilla Este"]
-                            .some(nombre => salon.nombre.includes(nombre)))
-                        .map(salon => ({
-                            id: salon.salonID.toString(),
-                            title: salon.nombre
-                        }))
-                }
-            };
-        }
-        // Handle error notification
-        else if (decryptedBody.data?.error) {
-            console.log('Error notification recibida:', decryptedBody.data.error);
-            response = {
-                data: {
-                    acknowledged: true
-                }
-            };
-        }
-        // Data exchange requests
-        else if (decryptedBody.action === 'data_exchange') {
-            console.log('Petición de intercambio de datos detectada');
-            switch(decryptedBody.screen) {
-                case "SERVICE_AND_LOCATION":
-                    // Procesar según los datos recibidos
-                    response = {
-                        screen: "APPOINTMENT_DETAILS",
-                        data: {
-                            available_staff: [], // Llenar con datos reales
-                            available_dates: [], // Llenar con datos reales
-                            available_times: []  // Llenar con datos reales
-                        }
-                    };
-                    break;
-                // Agregar otros casos según sea necesario
-            }
-        }
-
-        console.log('------------------------------------------');
-        console.log('Respuesta a enviar:', JSON.stringify(response, null, 2));
-        const encryptedResponse = encryptResponse(response, aesKeyBuffer, initialVectorBuffer);
-        res.send(encryptedResponse);
-
-    } catch (error) {
-        console.error('Error procesando petición:', error);
-        if (error instanceof FlowEndpointException) {
-            res.status(error.statusCode).send();
-        } else {
-            res.status(500).send();
-        }
-    }
-});
-
-app.post("/flow/confirm-appointment", async (req, res) => {
-    try {
-        const {
-            service_id,
-            location_id,
-            date,
-            time,
-            staff_id,
-            customer_name,
-            customer_phone
-        } = req.body;
-
-        const tempConversation = new Conversation();
-        tempConversation.from = customer_phone;
-        tempConversation.nombre = customer_name;
-        tempConversation.salonID = location_id;
-        tempConversation.nombreServicio = service_id;
-        tempConversation.peluquero = peluqueros.find(p => p.peluqueroID === staff_id);
-        
-        const horaInicio = moment(`${date} ${time}`);
-        const horaFin = horaInicio.clone().add(
-            servicios.find(s => s.servicioID === service_id)?.duracion || 30,
-            'minutes'
-        );
-
-        const saved = await MongoDB.GuardarEventoEnBD(
-            tempConversation,
-            horaInicio.format(),
-            horaFin.format()
-        );
-
-        if (saved) {
-            await statisticsManager.incrementConfirmedAppointments();
-            await LogSuccess(
-                customer_phone,
-                'Cita guardada desde flow',
-                location_id,
-                await MongoDB.ObtenerSalonPorSalonID(location_id)?.nombre
-            );
-            
-            const successResponse = encryptResponse({ success: true });
-            res.type('text/plain').send(successResponse);
-        } else {
-            throw new Error('No se pudo guardar la cita');
-        }
-
-    } catch (error) {
-        console.error('Error al confirmar la cita:', error);
-        try {
-            const errorResponse = encryptResponse({ success: false });
-            res.status(500).type('text/plain').send(errorResponse);
-        } catch (encryptError) {
-            console.error('Error al encriptar mensaje de error:', encryptError);
-            res.status(500).send('Error interno del servidor');
-        }
-    }
-});
 
 app.get("/test", (req, res) => {
   DoLog("TEST");
