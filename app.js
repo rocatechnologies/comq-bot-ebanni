@@ -974,8 +974,12 @@ let lastCacheUpdate = null;
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutos
 const ENDPOINT_TIMEOUT = 30000; // 30 segundos
 
+/**
+ * Clase que maneja la lógica de pantallas del Flow
+ */
 class FlowHandler {
   constructor() {
+      // Estructura de respuesta predefinida (opcional si quieres tener constantes):
       this.SCREEN_RESPONSES = {
           SERVICE_AND_LOCATION: {
               screen: "SERVICE_AND_LOCATION",
@@ -1000,201 +1004,165 @@ class FlowHandler {
       };
   }
 
+  /**
+   * Procesa la request descifrada que nos llega de /flow/data
+   */
   async processRequest(decryptedBody) {
-    console.log("\n=== INICIO PROCESAMIENTO FLOW DATA ===");
-    console.log('Request recibido:', JSON.stringify(decryptedBody, null, 2));
+    console.log("=== PROCESANDO SOLICITUD DE FLOW ===");
+    console.log("Datos recibidos:", JSON.stringify(decryptedBody, null, 2));
 
-    try {
-        const { version, action, screen_id, data = {} } = decryptedBody;
-        console.log(`Version: ${version}, Action: ${action}, Screen: ${screen_id}`);
+    const { version, action, screen_id, data = {} } = decryptedBody;
 
-        // Health check
-        if (action === "ping") {
-            return { status: "active" };
-        }
-
-        // Manejar INIT
-        if (action === "INIT" || !screen_id) {
-            console.log("Inicializando flow...");
-            return {
-                version: "3.0",
-                screen: "SERVICE_AND_LOCATION",
-                data: {
-                    services: this.getServiciosDisponibles(),
-                    locations: this.getCentrosDisponibles(),
-                    is_services_enabled: true,
-                    is_location_enabled: true
-                }
-            };
-        }
-
-        // Manejar intercambio de datos
-        if (action === "data_exchange") {
-            console.log("Procesando data_exchange para:", screen_id);
-            return this.handleDataExchange(screen_id, data);
-        }
-
-        throw new Error(`Acción no soportada: ${action}`);
-
-    } catch (error) {
-        console.error("Error procesando flow:", error);
-        throw error;
+    // Health check (ping)
+    if (action === "ping") {
+      return { data: { status: "active" } };
     }
-}
 
-  async getInitialScreen() {
-    console.log('Preparando pantalla inicial del flow...');
-    
-    try {
-        // Obtener servicios con validación
-        const serviciosDisponibles = this.getServiciosDisponibles();
-        console.log(`Servicios cargados: ${JSON.stringify(serviciosDisponibles)}`);
-
-        // Obtener centros con validación
-        const centrosDisponibles = this.getCentrosDisponibles();
-        console.log(`Centros cargados: ${JSON.stringify(centrosDisponibles)}`);
-
-        const response = {
-            screen: "SERVICE_AND_LOCATION",
-            data: {
-                services: serviciosDisponibles,
-                locations: centrosDisponibles,
-                is_services_enabled: true,
-                is_location_enabled: true
-            }
-        };
-
-        console.log('Respuesta inicial preparada:', JSON.stringify(response, null, 2));
-        return response;
-    } catch (error) {
-        console.error('Error preparando pantalla inicial:', error);
-        throw error;
+    // Acción de inicio: manda la pantalla de "SERVICE_AND_LOCATION"
+    if (action === "INIT" || !screen_id) {
+      console.log("Inicializando flow...");
+      return {
+        version: "3.0",
+        screen: "SERVICE_AND_LOCATION",
+        data: {
+          services: this.getServiciosDisponibles(),
+          locations: this.getCentrosDisponibles(),
+          is_services_enabled: true,
+          is_location_enabled: true
+        }
+      };
     }
-}
 
-getServiciosDisponibles() {
-  return servicios
-      .filter(servicio => servicio.servicioID && servicio.servicio)
-      .map(servicio => ({
-          id: servicio.servicioID,
-          title: servicio.servicio,
-          description: `Duración: ${servicio.duracion} minutos`
-      }));
-}
+    // Manejo de interacción con una pantalla concreta
+    if (action === "data_exchange") {
+      console.log(`Procesando data_exchange para la pantalla: ${screen_id}`);
+      return this.handleDataExchange(screen_id, data);
+    }
 
-getCentrosDisponibles() {
-  return salones
-      .filter(salon => salon.salonID && salon.nombre)
-      .map(salon => ({
-          id: salon.salonID,
-          title: salon.nombre,
-          description: salon.address
-      }));
-}
+    // Si llega una acción desconocida
+    throw new Error(`Acción no soportada: ${action}`);
+  }
 
+  /**
+   * Maneja cada pantalla distinta (SERVICE_AND_LOCATION, APPOINTMENT_DETAILS, etc.)
+   */
   async handleDataExchange(screen_id, data) {
-      console.log(`Procesando data_exchange para ${screen_id}:`, data);
-
-      switch(screen_id) {
-          case "SERVICE_AND_LOCATION":
-              return await this.handleServiceAndLocation(data);
-          case "APPOINTMENT_DETAILS":
-              return await this.handleAppointmentDetails(data);
-          default:
-              throw new Error(`Screen no soportada: ${screen_id}`);
-      }
+    switch(screen_id) {
+      case "SERVICE_AND_LOCATION":
+        return this.handleServiceAndLocation(data);
+      case "APPOINTMENT_DETAILS":
+        return this.handleAppointmentDetails(data);
+      default:
+        throw new Error(`Pantalla no soportada: ${screen_id}`);
+    }
   }
 
+  /**
+   * Lógica para la pantalla "SERVICE_AND_LOCATION"
+   */
   async handleServiceAndLocation(data) {
-      console.log('Procesando Service and Location:', data);
-
-      return {
-          screen: "SERVICE_AND_LOCATION",
-          data: {
-              services: this.getServiciosDisponibles(),
-              locations: this.getCentrosDisponibles(),
-              is_services_enabled: true,
-              is_location_enabled: Boolean(data.service)
-          }
-      };
+    // Ejemplo: si el usuario ya seleccionó servicio y centro, aquí puedes validar
+    // o devolver la misma pantalla con cambios.
+    return {
+      screen: "SERVICE_AND_LOCATION",
+      data: {
+        services: this.getServiciosDisponibles(),
+        locations: this.getCentrosDisponibles(),
+        is_services_enabled: true,
+        // Puedes deshabilitar si data.service está presente
+        is_location_enabled: !data.service
+      }
+    };
   }
 
+  /**
+   * Lógica para la pantalla "APPOINTMENT_DETAILS"
+   */
   async handleAppointmentDetails(data) {
-      console.log('Procesando Appointment Details:', data);
-      
-      const { service_id, location_id } = data;
-      
-      if (!service_id || !location_id) {
-          throw new Error("Faltan service_id o location_id");
+    const { service_id, location_id } = data;
+
+    if (!service_id || !location_id) {
+      throw new Error("Faltan service_id o location_id");
+    }
+
+    // Ejemplo: armar fechas disponibles y staff
+    const availableDates = await this.getAvailableDates();
+    const availableStaff = await this.getAvailableStaff(service_id, location_id);
+
+    return {
+      screen: "APPOINTMENT_DETAILS",
+      data: {
+        available_dates: availableDates,
+        available_staff: availableStaff,
+        available_times: [],
+        is_staff_enabled: true,
+        is_date_enabled: true,
+        is_time_enabled: false
       }
-
-      // Obtener fechas disponibles
-      const availableDates = await this.getAvailableDates();
-      
-      // Obtener personal disponible
-      const availableStaff = await this.getAvailableStaff(service_id, location_id);
-
-      return {
-          screen: "APPOINTMENT_DETAILS",
-          data: {
-              available_dates: availableDates,
-              available_staff: availableStaff,
-              available_times: [],
-              is_staff_enabled: true,
-              is_date_enabled: true,
-              is_time_enabled: false
-          }
-      };
+    };
   }
 
+  // Ejemplo: obtener lista de servicios
+  getServiciosDisponibles() {
+    // 'servicios' es una array global con la info
+    return servicios.map(s => ({
+      id: s.servicioID,
+      title: s.servicio,
+      description: `Duración: ${s.duracion} minutos`
+    }));
+  }
+
+  // Ejemplo: obtener lista de centros
+  getCentrosDisponibles() {
+    return salones.map(s => ({
+      id: s.salonID,
+      title: s.nombre,
+      description: s.address
+    }));
+  }
+
+  // Ejemplo: generar 30 días
   async getAvailableDates() {
-      const dates = [];
-      const startDate = moment();
-      
-      for (let i = 0; i < 30; i++) {
-          const currentDate = startDate.clone().add(i, 'days');
-          if (currentDate.day() !== 0 || currentDate.month() === 11) {
-              dates.push({
-                  id: currentDate.format('YYYY-MM-DD'),
-                  title: currentDate.format('DD/MM/YYYY')
-              });
-          }
+    const dates = [];
+    const startDate = moment();
+    for (let i = 0; i < 30; i++) {
+      const currentDate = startDate.clone().add(i, 'days');
+      // Ejemplo: no mostrar domingos, excepto en diciembre
+      if (currentDate.day() !== 0 || currentDate.month() === 11) {
+        dates.push({
+          id: currentDate.format('YYYY-MM-DD'),
+          title: currentDate.format('DD/MM/YYYY')
+        });
       }
-      
-      return dates;
+    }
+    return dates;
   }
 
+  // Ejemplo: obtener peluqueros disponibles según centro y servicio
   async getAvailableStaff(service_id, location_id) {
-      try {
-          const peluquerosDisponibles = await MongoDB.ListarPeluquerosDisponibles(
-              moment(),
-              location_id,
-              service_id,
-              "",
-              servicios.find(s => s.servicioID === service_id)?.duracion || 30
-          );
-
-          return Promise.all(peluquerosDisponibles.map(async id => ({
-              id: id,
-              title: await MongoDB.ObtenerNombrePeluqueroPorID(id)
-          })));
-      } catch (error) {
-          console.error('Error obteniendo personal disponible:', error);
-          return [];
-      }
+    // Aquí tendrías la lógica real para filtrar en tu DB
+    // Devuelves un array: [ { id, title }, ... ]
+    return [
+      { id: "abc123", title: "Peluquero 1" },
+      { id: "def456", title: "Peluquero 2" }
+    ];
   }
 
+  /**
+   * Para manejar errores y devolver algo consistente
+   */
   handleError(error) {
-      console.error('Error en el flow:', error);
-      return {
-          success: false,
-          error: {
-              message: error.message || 'Error interno del servidor',
-              code: error.statusCode || 500
-          }
-      };
+    console.error('Error en el flow:', error);
+    return {
+      success: false,
+      error: {
+        message: error.message || 'Error interno del servidor',
+        code: error.statusCode || 500
+      }
+    };
   }
 }
+
 
 const flowHandler = new FlowHandler();
 
@@ -1234,6 +1202,7 @@ app.post("/flow/data", async (req, res) => {
       }
   }
 });
+
 
 // Endpoint para confirmar la cita usando tus funciones existentes
 app.post("/flow/confirm-appointment", async (req, res) => {
