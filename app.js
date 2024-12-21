@@ -1004,11 +1004,11 @@ class FlowHandler {
     console.log("\n=== PROCESANDO SOLICITUD DE FLOW ===");
     console.log('Datos recibidos:', JSON.stringify(decryptedBody, null, 2));
 
-    const { screen_id, action, data = {} } = decryptedBody;
-    console.log(`Action: ${action}, Screen: ${screen_id}`);
-
     try {
-        // Manejar health check
+        const { screen_id, action, data = {} } = decryptedBody;
+        console.log(`Action: ${action}, Screen: ${screen_id}, Data:`, data);
+
+        // Health check
         if (action === "ping") {
             console.log("Health check detectado");
             return {
@@ -1018,32 +1018,25 @@ class FlowHandler {
             };
         }
 
-        // Manejar solicitud inicial
+        // Solicitud inicial o INIT
         if (action === "INIT" || !screen_id) {
-            console.log("Solicitud inicial detectada, cargando datos...");
-            const serviciosDisponibles = this.getServiciosDisponibles();
-            const centrosDisponibles = this.getCentrosDisponibles();
-            
-            console.log("Servicios disponibles:", serviciosDisponibles.length);
-            console.log("Centros disponibles:", centrosDisponibles.length);
-
-            const initialResponse = {
+            console.log("Solicitud inicial detectada");
+            const initialData = {
                 screen: "SERVICE_AND_LOCATION",
                 data: {
-                    services: serviciosDisponibles,
-                    locations: centrosDisponibles,
+                    services: this.getServiciosDisponibles(),
+                    locations: this.getCentrosDisponibles(),
                     is_services_enabled: true,
                     is_location_enabled: true
                 }
             };
-
-            console.log("Respuesta inicial preparada:", JSON.stringify(initialResponse, null, 2));
-            return initialResponse;
+            console.log("Enviando datos iniciales:", JSON.stringify(initialData, null, 2));
+            return initialData;
         }
 
-        // Manejar data_exchange
+        // Intercambio de datos
         if (action === "data_exchange") {
-            console.log("Procesando intercambio de datos");
+            console.log("Procesando intercambio de datos:", data);
             return await this.handleDataExchange(screen_id, data);
         }
 
@@ -1053,7 +1046,7 @@ class FlowHandler {
         console.error("Error procesando solicitud:", error);
         throw error;
     }
-}
+  }
 
   async getInitialScreen() {
     console.log('Preparando pantalla inicial del flow...');
@@ -1086,27 +1079,23 @@ class FlowHandler {
 }
 
 getServiciosDisponibles() {
-  console.log("Obteniendo servicios disponibles...");
-  const serviciosFormateados = servicios
+  return servicios
       .filter(servicio => servicio.servicioID && servicio.servicio)
       .map(servicio => ({
           id: servicio.servicioID,
-          title: servicio.servicio
+          title: servicio.servicio,
+          description: `Duración: ${servicio.duracion} minutos`
       }));
-  console.log(`Total servicios formateados: ${serviciosFormateados.length}`);
-  return serviciosFormateados;
 }
 
 getCentrosDisponibles() {
-  console.log("Obteniendo centros disponibles...");
-  const centrosFormateados = salones
+  return salones
       .filter(salon => salon.salonID && salon.nombre)
       .map(salon => ({
           id: salon.salonID,
-          title: salon.nombre
+          title: salon.nombre,
+          description: salon.address
       }));
-  console.log(`Total centros formateados: ${centrosFormateados.length}`);
-  return centrosFormateados;
 }
 
   async handleDataExchange(screen_id, data) {
@@ -3155,11 +3144,15 @@ class Conversation {
                             {
                                 type: "action",
                                 action: {
+                                    flow_token: "your_flow_token", // Añadir si es necesario
                                     flow_action_data: {
                                         flow_id: "2436991323137895",
-                                        flow_action: "INIT", // Asegurarse de que se inicie correctamente
-                                        flow_params: {
-                                            screen: "SERVICE_AND_LOCATION"
+                                        screen: "SERVICE_AND_LOCATION",
+                                        screen_data: {
+                                            services: FlowHandler.getServiciosDisponibles(),
+                                            locations: FlowHandler.getCentrosDisponibles(),
+                                            is_services_enabled: true,
+                                            is_location_enabled: true
                                         }
                                     }
                                 }
@@ -3170,15 +3163,19 @@ class Conversation {
             }
         };
 
+        // Añadir logs detallados
+        console.log("Servicios disponibles:", FlowHandler.getServiciosDisponibles());
+        console.log("Centros disponibles:", FlowHandler.getCentrosDisponibles());
         console.log("Enviando plantilla de flow:", JSON.stringify(data, null, 2));
+
         await WhatsApp.Send(_phone_number_id, data);
         
-        rtn.message = "Flow de cita iniciado correctamente.";
+        rtn.message = "Flow de cita iniciado correctamente. Por favor, continúa en la ventana del flow para seleccionar el servicio y el centro.";
         await statisticsManager.incrementInteractions();
         
     } catch (error) {
         console.error('Error al procesar el flow:', error);
-        rtn.message = "Hubo un error al iniciar el flow de cita.";
+        rtn.message = "Hubo un error al iniciar el flow de cita. Por favor, intenta indicarme directamente el servicio y el centro que prefieres.";
         await statisticsManager.incrementFailedOperations();
         await LogError(
             this.from,
@@ -3191,7 +3188,7 @@ class Conversation {
 
     this.AddMsg(rtn);
     return "";
-}
+  }
 }
 
 class Message {
