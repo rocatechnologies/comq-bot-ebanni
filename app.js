@@ -1037,6 +1037,12 @@ class FlowHandler {
               };
           }
 
+          // Manejar solicitud inicial explícita
+          if (action === "INIT") {
+              console.log("Solicitud inicial detectada");
+              return await this.getInitialScreen();
+          }
+
           // Manejar error notification
           if (params?.error) {
               console.log("Error notification recibida:", params.error);
@@ -1080,25 +1086,36 @@ class FlowHandler {
 
   async getInitialScreen() {
       console.log('Obteniendo pantalla inicial...');
+      
+      // Filtrar solo los salones activos que pueden recibir citas
+      const salonesActivos = salones.filter(salon => 
+          salon.salonID && 
+          ["nervion_senoras", "nervion_caballeros", "duque", "sevilla_este"].includes(salon.salonID)
+      );
+
+      // Preparar los servicios disponibles
+      const serviciosDisponibles = servicios
+          .filter(servicio => servicio.servicioID && servicio.servicio)
+          .map(servicio => ({
+              id: servicio.servicioID,
+              title: servicio.servicio,
+              duration: servicio.duracion // Añadir duración para referencia
+          }));
+
       const response = {
-          ...this.SCREEN_RESPONSES.SERVICE_AND_LOCATION,
+          screen: "SERVICE_AND_LOCATION",
           data: {
-              services: servicios.map(servicio => ({
-                  id: servicio.servicioID,
-                  title: servicio.servicio
+              services: serviciosDisponibles,
+              locations: salonesActivos.map(salon => ({
+                  id: salon.salonID,
+                  title: salon.nombre,
+                  address: salon.address || ""
               })),
-              locations: salones
-                  .filter(salon => salon.salonID)
-                  .map(salon => ({
-                      id: salon.salonID,
-                      title: salon.nombre,
-                      address: salon.address
-                  })),
               is_location_enabled: true
           }
       };
       
-      console.log('Respuesta inicial:', JSON.stringify(response, null, 2));
+      console.log('Respuesta inicial preparada:', JSON.stringify(response, null, 2));
       return response;
   }
 
@@ -1314,35 +1331,37 @@ class FlowHandler {
 const flowHandler = new FlowHandler();
 
 app.post("/flow/data", async (req, res) => {
-  console.log("\n=== INICIO PROCESAMIENTO FLOW DATA ===");
-  
-  try {
-      // 1. Descifrar la petición
-      const { decryptedBody, aesKeyBuffer, initialVectorBuffer } = decryptRequest(req.body);
-      console.log("Cuerpo descifrado:", JSON.stringify(decryptedBody, null, 2));
+    console.log("\n=== INICIO PROCESAMIENTO FLOW DATA ===");
+    
+    try {
+        // 1. Descifrar la petición
+        const { decryptedBody, aesKeyBuffer, initialVectorBuffer } = decryptRequest(req.body);
+        console.log("Cuerpo descifrado:", JSON.stringify(decryptedBody, null, 2));
+        console.log("Tipo de solicitud:", decryptedBody.action);
+        console.log("Version:", decryptedBody.version);
 
-      // 2. Procesar la solicitud usando el FlowHandler
-      const response = await flowHandler.processRequest(decryptedBody);
-      
-      // 3. Encriptar y enviar respuesta
-      console.log('Respuesta a enviar:', JSON.stringify(response, null, 2));
-      const encryptedResponse = encryptResponse(response, aesKeyBuffer, initialVectorBuffer);
-      res.send(encryptedResponse);
+        // 2. Procesar la solicitud usando el FlowHandler
+        const response = await flowHandler.processRequest(decryptedBody);
+        
+        // 3. Encriptar y enviar respuesta
+        console.log('Respuesta a enviar:', JSON.stringify(response, null, 2));
+        const encryptedResponse = encryptResponse(response, aesKeyBuffer, initialVectorBuffer);
+        res.send(encryptedResponse);
 
-  } catch (error) {
-      console.error('Error en flow/data:', error);
-      const errorResponse = flowHandler.handleError(error);
-      
-      try {
-          const encryptedError = encryptResponse(errorResponse, aesKeyBuffer, initialVectorBuffer);
-          res.status(error.statusCode || 500).send(encryptedError);
-      } catch (encryptError) {
-          console.error('Error al encriptar respuesta de error:', encryptError);
-          res.status(500).json({ error: 'Error interno del servidor' });
-      }
-  }
+    } catch (error) {
+        console.error('Error en flow/data:', error);
+        const errorResponse = flowHandler.handleError(error);
+        
+        try {
+            const encryptedError = encryptResponse(errorResponse, aesKeyBuffer, initialVectorBuffer);
+            res.status(error.statusCode || 500).send(encryptedError);
+        } catch (encryptError) {
+            console.error('Error al encriptar respuesta de error:', encryptError);
+            res.status(500).json({ error: 'Error interno del servidor' });
+        }
+    }
 
-  console.log("=== FIN PROCESAMIENTO FLOW DATA ===\n");
+    console.log("=== FIN PROCESAMIENTO FLOW DATA ===\n");
 });
 // Endpoint para confirmar la cita usando tus funciones existentes
 app.post("/flow/confirm-appointment", async (req, res) => {
