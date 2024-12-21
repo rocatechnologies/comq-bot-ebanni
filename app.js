@@ -986,7 +986,6 @@ class FlowHandler {
     console.log("\n=== PROCESANDO SOLICITUD DE FLOW ===");
     console.log("Datos recibidos:", decryptedBody);
 
-    // Extraer valores asegurándonos de que screen se obtiene correctamente
     const action = decryptedBody.action || '';
     const screen = decryptedBody.screen || '';
     const data = decryptedBody.data || {};
@@ -994,14 +993,11 @@ class FlowHandler {
     console.log("Valores extraídos:", { action, screen, data });
 
     try {
-      // Health check
       if (action === "ping") {
         return { data: { status: "active" } };
       }
 
-      // Solo inicializar si es INIT o no hay screen
       if (action === "INIT" || screen === "") {
-        console.log("Inicialización inicial del flow");
         return {
           version: "3.0",
           screen: "WELCOME",
@@ -1009,7 +1005,6 @@ class FlowHandler {
         };
       }
 
-      // Manejar las diferentes pantallas y acciones
       switch(screen) {
         case "WELCOME": {
           if (action === "data_exchange") {
@@ -1034,21 +1029,8 @@ class FlowHandler {
           if (action === "data_exchange") {
             console.log("Procesando data_exchange desde SERVICE_AND_LOCATION");
             const { service, location } = data;
-            
-            if (!service || !location) {
-              throw new Error("Faltan datos de servicio o ubicación");
-            }
-
-            console.log("Obteniendo datos para APPOINTMENT_DETAILS");
             const availableDates = await this.getAvailableDates(location);
             const availableStaff = await this.getAvailableStaff(service, location);
-            const availableTimes = await this.getAvailableTimes();
-
-            console.log("Datos preparados para APPOINTMENT_DETAILS:", {
-              datesCount: availableDates.length,
-              staffCount: availableStaff.length,
-              timesCount: availableTimes.length
-            });
 
             return {
               version: "3.0",
@@ -1056,12 +1038,10 @@ class FlowHandler {
               data: {
                 available_dates: availableDates,
                 available_staff: availableStaff,
-                available_times: availableTimes,
-                selected_service: service,
-                selected_location: location,
                 is_staff_enabled: true,
                 is_date_enabled: true,
-                is_time_enabled: true
+                selected_service: service,
+                selected_location: location
               }
             };
           }
@@ -1070,22 +1050,52 @@ class FlowHandler {
 
         case "APPOINTMENT_DETAILS": {
           if (action === "data_exchange") {
-            console.log("Procesando data_exchange desde APPOINTMENT_DETAILS");
-            const { staff, date, time } = data;
-            
-            if (!staff || !date || !time) {
-              throw new Error("Faltan datos de cita");
-            }
+            console.log("Procesando data_exchange desde APPOINTMENT_DETAILS", data);
+            const { staff, date } = data;
 
-            return {
-              version: "3.0",
-              screen: "CUSTOMER_DETAILS",
-              data: {
-                selected_staff: staff,
-                selected_date: date,
-                selected_time: time
-              }
-            };
+            // Si tenemos staff y fecha, obtener horarios específicos
+            if (staff && date) {
+              const dateMoment = moment(date);
+              const horarios = await MongoDB.BuscarHorariosDisponiblesPeluquero(
+                staff,
+                dateMoment,
+                data.service,
+                data.location
+              );
+
+              const availableTimes = horarios.map(hora => ({
+                id: hora,
+                title: hora
+              }));
+
+              console.log(`Horarios disponibles encontrados: ${availableTimes.length}`);
+
+              return {
+                version: "3.0",
+                screen: "APPOINTMENT_DETAILS",
+                data: {
+                  available_times: availableTimes,
+                  is_time_enabled: true,
+                  selected_staff: staff,
+                  selected_date: date
+                }
+              };
+            }
+            
+            // Si llegamos aquí con todos los datos, avanzar a CUSTOMER_DETAILS
+            if (data.time) {
+              return {
+                version: "3.0",
+                screen: "CUSTOMER_DETAILS",
+                data: {
+                  selected_staff: staff,
+                  selected_date: date,
+                  selected_time: data.time,
+                  selected_service: data.service,
+                  selected_location: data.location
+                }
+              };
+            }
           }
           break;
         }
@@ -1129,80 +1139,30 @@ class FlowHandler {
   async getAvailableStaff(serviceId, locationId) {
     console.log("Buscando staff disponible para:", {
       serviceId,
-      locationId,
-      totalPeluqueros: peluqueros.length
+      locationId
     });
 
-    // Verificar que los IDs son strings
-    const sId = serviceId.toString();
-    const lId = locationId.toString();
-
-    // Obtener servicio para verificación
-    const servicio = servicios.find(s => s.servicioID === sId);
-    if (!servicio) {
-      console.log("Servicio no encontrado:", sId);
+    // Filtrar peluqueros por centro
+    const staffDelCentro = peluqueros.filter(p => p.salonID === locationId);
+    
+    if (staffDelCentro.length === 0) {
+      console.log("No se encontró staff para el centro:", locationId);
       return [];
-    }
-
-    // Obtener centro para verificación
-    const salon = salones.find(s => s.salonID === lId);
-    if (!salon) {
-      console.log("Salón no encontrado:", lId);
-      return [];
-    }
-
-    console.log("Servicio y salón encontrados:", {
-      servicio: servicio.servicio,
-      salon: salon.nombre
-    });
-
-    // Filtrar peluqueros que:
-    // 1. Trabajan en el centro
-    // 2. Pueden realizar el servicio
-    const staffDisponible = peluqueros.filter(p => {
-      const trabajaEnCentro = p.salonID === lId;
-      const puedeHacerServicio = p.services.some(s => 
-        s.toLowerCase().includes(servicio.servicio.toLowerCase())
-      );
-
-      console.log(`Evaluando peluquero ${p.name}:`, {
-        trabajaEnCentro,
-        puedeHacerServicio,
-        servicios: p.services
-      });
-
-      return trabajaEnCentro && puedeHacerServicio;
-    });
-
-    console.log("Staff disponible encontrado:", staffDisponible.length);
-
-    // Si no hay nadie disponible, devolver todos los del centro
-    if (staffDisponible.length === 0) {
-      console.log("No se encontró staff específico, devolviendo todos los del centro");
-      return peluqueros
-        .filter(p => p.salonID === lId)
-        .map(p => ({
-          id: p.peluqueroID,
-          title: p.name
-        }));
     }
 
     // Mapear al formato requerido
-    return staffDisponible.map(p => ({
+    return staffDelCentro.map(p => ({
       id: p.peluqueroID,
       title: p.name
     }));
   }
 
   async getAvailableDates(locationId) {
-    console.log("Obteniendo fechas disponibles para:", locationId);
     const dates = [];
     const startDate = moment().startOf('day');
     
     for (let i = 0; i < 30; i++) {
       const currentDate = startDate.clone().add(i, 'days');
-      // En diciembre, mostrar todos los días
-      // En otros meses, excluir domingos
       if (currentDate.month() === 11 || currentDate.day() !== 0) {
         dates.push({
           id: currentDate.format('YYYY-MM-DD'),
@@ -1210,27 +1170,7 @@ class FlowHandler {
         });
       }
     }
-
-    console.log(`Generadas ${dates.length} fechas disponibles`);
     return dates;
-  }
-
-  getAvailableTimes() {
-    console.log("Generando horarios disponibles");
-    const times = [];
-    const startTime = moment().set({hour: 10, minute: 0});
-    const endTime = moment().set({hour: 21, minute: 30});
-
-    while (startTime.isSameOrBefore(endTime)) {
-      times.push({
-        id: startTime.format('HH:mm'),
-        title: startTime.format('HH:mm')
-      });
-      startTime.add(30, 'minutes');
-    }
-
-    console.log(`Generados ${times.length} horarios disponibles`);
-    return times;
   }
 }
 
