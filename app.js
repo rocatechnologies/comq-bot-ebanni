@@ -979,47 +979,26 @@ const ENDPOINT_TIMEOUT = 30000; // 30 segundos
  */
 class FlowHandler {
   constructor() {
-      // Estructura de respuesta predefinida (opcional si quieres tener constantes):
-      this.SCREEN_RESPONSES = {
-          SERVICE_AND_LOCATION: {
-              screen: "SERVICE_AND_LOCATION",
-              data: {
-                  services: [],
-                  locations: [],
-                  is_services_enabled: true,
-                  is_location_enabled: true
-              }
-          },
-          APPOINTMENT_DETAILS: {
-              screen: "APPOINTMENT_DETAILS",
-              data: {
-                  available_dates: [],
-                  available_staff: [],
-                  available_times: [],
-                  is_staff_enabled: true,
-                  is_date_enabled: true,
-                  is_time_enabled: true
-              }
-          }
-      };
   }
 
   /**
    * Procesa la request descifrada que nos llega de /flow/data
    */
   async processRequest(decryptedBody) {
-    console.log("=== PROCESANDO SOLICITUD DE FLOW ===");
-    console.log("Datos recibidos:", JSON.stringify(decryptedBody, null, 2));
+    const { action, screen_id, data = {} } = decryptedBody;
 
-    const { version, action, screen_id, data = {} } = decryptedBody;
+  console.log("=== PROCESANDO SOLICITUD DE FLOW ===");
+  console.log("Datos recibidos:", decryptedBody);
 
-    // Health check (ping)
-    if (action === "ping") {
-      return { data: { status: "active" } };
-    }
+  // Health-check
+  if (action === "ping") {
+    return { data: { status: "active" } };
+  }
 
-    // Acción de inicio: mostrar pantalla WELCOME sin data
-  if (action === "INIT" || !screen_id) {
+  // Si NO hay screen_id o la acción es INIT,
+  console.log("screen_id:", screen_id);
+  // Devuelve la pantalla WELCOME como inicio
+  if (!screen_id || action === "INIT") {
     return {
       version: "3.0",
       screen: "WELCOME",
@@ -1027,7 +1006,8 @@ class FlowHandler {
     };
   }
 
-  // Cuando el usuario pulse “Empezar” en WELCOME
+  // Al pulsar "Empezar" en la pantalla WELCOME
+  // (action === "goto_service" && screen_id === "WELCOME")
   if (action === "goto_service" && screen_id === "WELCOME") {
     return {
       version: "3.0",
@@ -1041,19 +1021,16 @@ class FlowHandler {
     };
   }
 
-  // Ejemplo de manejo de SERVICE_AND_LOCATION → APPOINTMENT_DETAILS
+  // Si estás en SERVICE_AND_LOCATION y el usuario hace data_exchange,
+  // pasas a APPOINTMENT_DETAILS (ejemplo)
   if (action === "data_exchange" && screen_id === "SERVICE_AND_LOCATION") {
-    // Aquí harías validaciones y luego devuelves APPOINTMENT_DETAILS
     return {
       version: "3.0",
       screen: "APPOINTMENT_DETAILS",
       data: {
-        available_dates: [],      // Tus datos
+        available_dates: [],
         available_staff: [],
-        available_times: [],
-        is_staff_enabled: true,
-        is_date_enabled: true,
-        is_time_enabled: true
+        available_times: []
       }
     };
   }
@@ -1067,6 +1044,8 @@ class FlowHandler {
    */
   async handleDataExchange(screen_id, data) {
     switch(screen_id) {
+      case "WELCOME":
+      return this.handleWelcome(data);
       case "SERVICE_AND_LOCATION":
         return this.handleServiceAndLocation(data);
       case "APPOINTMENT_DETAILS":
@@ -1074,6 +1053,16 @@ class FlowHandler {
       default:
         throw new Error(`Pantalla no soportada: ${screen_id}`);
     }
+  }
+
+  async handleWelcome(data) {
+    // Ejemplo: Si aquí no necesitas nada, solo devuelves la misma pantalla.
+    // O, si el usuario pulsó "Empezar", podrías preparar la transición a SERVICE_AND_LOCATION.
+    // Por ahora, devuelves la pantalla WELCOME a modo de demostración.
+    return {
+      screen: "WELCOME",
+      data: {}
+    };
   }
 
   /**
