@@ -3121,6 +3121,12 @@ class Conversation {
   async ProcesarFlow(gpt) {
     let rtn = new Message(WhoEnum.System);
     
+    // Utilizar los métodos de FlowHandler
+    const serviciosDisponibles = flowHandler.getServiciosDisponibles();
+    const centrosDisponibles = flowHandler.getCentrosDisponibles();
+    
+    console.log("Servicios disponibles:", serviciosDisponibles);
+    console.log("Centros disponibles:", centrosDisponibles);
     try {
         console.log("Iniciando procesamiento de flow...");
         
@@ -3149,8 +3155,8 @@ class Conversation {
                                         flow_id: "2436991323137895",
                                         screen: "SERVICE_AND_LOCATION",
                                         screen_data: {
-                                            services: FlowHandler.getServiciosDisponibles(),
-                                            locations: FlowHandler.getCentrosDisponibles(),
+                                            services: serviciosDisponibles,
+                                            locations: centrosDisponibles,
                                             is_services_enabled: true,
                                             is_location_enabled: true
                                         }
@@ -3162,10 +3168,6 @@ class Conversation {
                 ]
             }
         };
-
-        // Añadir logs detallados
-        console.log("Servicios disponibles:", FlowHandler.getServiciosDisponibles());
-        console.log("Centros disponibles:", FlowHandler.getCentrosDisponibles());
         console.log("Enviando plantilla de flow:", JSON.stringify(data, null, 2));
 
         await WhatsApp.Send(_phone_number_id, data);
