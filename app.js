@@ -971,16 +971,15 @@ let lastCacheUpdate = null;
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutos
 const ENDPOINT_TIMEOUT = 30000; // 30 segundos
 
-
 class FlowHandler {
   constructor() {
-      // Constantes para las respuestas de cada pantalla
       this.SCREEN_RESPONSES = {
           SERVICE_AND_LOCATION: {
               screen: "SERVICE_AND_LOCATION",
               data: {
                   services: [],
                   locations: [],
+                  is_services_enabled: true,
                   is_location_enabled: true
               }
           },
@@ -994,28 +993,6 @@ class FlowHandler {
                   is_date_enabled: true,
                   is_time_enabled: true
               }
-          },
-          CUSTOMER_DETAILS: {
-              screen: "CUSTOMER_DETAILS",
-              data: {
-                  service: "",
-                  location: "",
-                  staff: "",
-                  date: "",
-                  time: ""
-              }
-          },
-          SUMMARY: {
-              screen: "SUMMARY",
-              data: {
-                  appointment_summary: ""
-              }
-          },
-          CONFIRMATION: {
-              screen: "CONFIRMATION",
-              data: {
-                  confirmation_message: "Tu cita ha sido confirmada exitosamente."
-              }
           }
       };
   }
@@ -1024,8 +1001,8 @@ class FlowHandler {
       console.log("\n=== PROCESANDO SOLICITUD DE FLOW ===");
       console.log('Datos recibidos:', JSON.stringify(decryptedBody, null, 2));
 
-      const { screen_id, action, params = {}, data = {}, version } = decryptedBody;
-      console.log(`Procesando acción: ${action}, screen: ${screen_id}, version: ${version}`);
+      const { screen_id, action, data = {} } = decryptedBody;
+      console.log(`Action: ${action}, Screen: ${screen_id}`);
 
       try {
           // Manejar health check
@@ -1038,141 +1015,112 @@ class FlowHandler {
               };
           }
 
-          // Manejar error notification
-          if (data?.error) {
-              console.log("Error notification recibida:", data.error);
-              return {
-                  data: {
-                      acknowledged: true
-                  }
-              };
-          }
-
-          // Manejar solicitud inicial
+          // Manejar solicitud inicial o INIT
           if (action === "INIT" || !screen_id) {
               console.log("Solicitud inicial detectada");
               return await this.getInitialScreen();
           }
 
-          // Manejar intercambio de datos
+          // Manejar data_exchange
           if (action === "data_exchange") {
-              console.log("Procesando intercambio de datos para pantalla:", screen_id);
-              console.log("Datos recibidos:", data);
-              
-              switch(screen_id) {
-                  case "SERVICE_AND_LOCATION":
-                      return {
-                          screen: "SERVICE_AND_LOCATION",
-                          data: {
-                              services: servicios.map(servicio => ({
-                                  id: servicio.servicioID,
-                                  title: servicio.servicio
-                              })),
-                              locations: salones
-                                  .filter(salon => salon.salonID)
-                                  .map(salon => ({
-                                      id: salon.salonID,
-                                      title: salon.nombre
-                                  })),
-                              is_location_enabled: Boolean(data.service),
-                              is_date_enabled: Boolean(data.service && data.location),
-                              is_time_enabled: Boolean(data.service && data.location && data.date)
-                          }
-                      };
-                  // Añadir más casos según sea necesario
-              }
+              return await this.handleDataExchange(screen_id, data);
           }
 
-          // Manejar error notification
-          if (params?.error) {
-              console.log("Error notification recibida:", params.error);
-              return {
-                  data: {
-                      acknowledged: true
-                  }
-              };
-          }
+          throw new Error(`Acción no soportada: ${action}`);
 
-          // Manejar solicitud inicial del flow
-          if (!screen_id || action === "INIT") {
-              console.log("Iniciando nuevo flow");
-              return await this.getInitialScreen();
-          }
-
-          // Procesar pantallas según el screen_id
-          console.log(`Procesando pantalla: ${screen_id}`);
-          const handler = this.getScreenHandler(screen_id);
-          if (!handler) {
-              throw new Error(`Screen_id no soportado: ${screen_id}`);
-          }
-
-          return await handler.call(this, params);
       } catch (error) {
-          console.error('Error procesando solicitud:', error);
+          console.error("Error procesando solicitud:", error);
           throw error;
       }
   }
 
-  getScreenHandler(screenId) {
-      const handlers = {
-          'SERVICE_AND_LOCATION': this.processServiceAndLocation,
-          'APPOINTMENT_DETAILS': this.processAppointmentDetails,
-          'CUSTOMER_DETAILS': this.processCustomerDetails,
-          'SUMMARY': this.processSummary,
-          'CONFIRMATION': this.processConfirmation
-      };
-      return handlers[screenId];
-  }
-
   async getInitialScreen() {
-      console.log('Obteniendo pantalla inicial...');
-      
-      // Filtrar solo los salones activos que pueden recibir citas
-      const salonesActivos = salones.filter(salon => 
-          salon.salonID && 
-          ["nervion_senoras", "nervion_caballeros", "duque", "sevilla_este"].includes(salon.salonID)
-      );
+      console.log('Preparando pantalla inicial...');
 
-      // Preparar los servicios disponibles
-      const serviciosDisponibles = servicios
-          .filter(servicio => servicio.servicioID && servicio.servicio)
-          .map(servicio => ({
-              id: servicio.servicioID,
-              title: servicio.servicio,
-              duration: servicio.duracion // Añadir duración para referencia
-          }));
+      // Obtener servicios
+      const serviciosDisponibles = this.getServiciosDisponibles();
+      console.log(`Servicios disponibles: ${serviciosDisponibles.length}`);
+
+      // Obtener centros
+      const centrosDisponibles = this.getCentrosDisponibles();
+      console.log(`Centros disponibles: ${centrosDisponibles.length}`);
 
       const response = {
           screen: "SERVICE_AND_LOCATION",
           data: {
               services: serviciosDisponibles,
-              locations: salonesActivos.map(salon => ({
-                  id: salon.salonID,
-                  title: salon.nombre,
-                  address: salon.address || ""
-              })),
+              locations: centrosDisponibles,
+              is_services_enabled: true,
               is_location_enabled: true
           }
       };
-      
-      console.log('Respuesta inicial preparada:', JSON.stringify(response, null, 2));
+
+      console.log('Respuesta inicial:', JSON.stringify(response, null, 2));
       return response;
   }
 
-  async processServiceAndLocation(params) {
-      console.log('Procesando servicio y ubicación:', params);
+  getServiciosDisponibles() {
+      return servicios
+          .filter(servicio => servicio.servicioID && servicio.servicio)
+          .map(servicio => ({
+              id: servicio.servicioID,
+              title: servicio.servicio
+          }));
+  }
+
+  getCentrosDisponibles() {
+      return salones
+          .filter(salon => salon.salonID)
+          .map(salon => ({
+              id: salon.salonID,
+              title: salon.nombre
+          }));
+  }
+
+  async handleDataExchange(screen_id, data) {
+      console.log(`Procesando data_exchange para ${screen_id}:`, data);
+
+      switch(screen_id) {
+          case "SERVICE_AND_LOCATION":
+              return await this.handleServiceAndLocation(data);
+          case "APPOINTMENT_DETAILS":
+              return await this.handleAppointmentDetails(data);
+          default:
+              throw new Error(`Screen no soportada: ${screen_id}`);
+      }
+  }
+
+  async handleServiceAndLocation(data) {
+      console.log('Procesando Service and Location:', data);
+
+      return {
+          screen: "SERVICE_AND_LOCATION",
+          data: {
+              services: this.getServiciosDisponibles(),
+              locations: this.getCentrosDisponibles(),
+              is_services_enabled: true,
+              is_location_enabled: Boolean(data.service)
+          }
+      };
+  }
+
+  async handleAppointmentDetails(data) {
+      console.log('Procesando Appointment Details:', data);
       
-      const { service_id, location_id } = params;
+      const { service_id, location_id } = data;
       
-      if (!service_id && !location_id) {
-          return await this.getInitialScreen();
+      if (!service_id || !location_id) {
+          throw new Error("Faltan service_id o location_id");
       }
 
+      // Obtener fechas disponibles
       const availableDates = await this.getAvailableDates();
+      
+      // Obtener personal disponible
       const availableStaff = await this.getAvailableStaff(service_id, location_id);
 
       return {
-          ...this.SCREEN_RESPONSES.APPOINTMENT_DETAILS,
+          screen: "APPOINTMENT_DETAILS",
           data: {
               available_dates: availableDates,
               available_staff: availableStaff,
@@ -1184,80 +1132,6 @@ class FlowHandler {
       };
   }
 
-  async processAppointmentDetails(params) {
-      console.log('Procesando detalles de cita:', params);
-      
-      const { service_id, location_id, date, staff_id } = params;
-      
-      if (!service_id || !location_id) {
-          throw new Error("Faltan parámetros requeridos");
-      }
-
-      const response = {
-          ...this.SCREEN_RESPONSES.APPOINTMENT_DETAILS,
-          data: {
-              service: await this.getServiceName(service_id),
-              location: await this.getLocationName(location_id),
-              available_dates: await this.getAvailableDates(),
-              available_staff: await this.getAvailableStaff(service_id, location_id),
-              available_times: [],
-              is_staff_enabled: true,
-              is_date_enabled: true,
-              is_time_enabled: Boolean(date && staff_id)
-          }
-      };
-
-      if (date && staff_id) {
-          response.data.available_times = await this.getAvailableTimes(
-              date, staff_id, service_id, location_id
-          );
-      }
-
-      return response;
-  }
-
-  async processCustomerDetails(params) {
-      console.log('Procesando detalles del cliente:', params);
-      
-      const { name, phone } = params;
-      if (!name || !phone) {
-          throw new Error("Nombre y teléfono son requeridos");
-      }
-
-      return {
-          ...this.SCREEN_RESPONSES.CUSTOMER_DETAILS,
-          data: {
-              ...params,
-              appointment_summary: this.generateAppointmentSummary(params)
-          }
-      };
-  }
-
-  async processSummary(params) {
-      console.log('Procesando resumen:', params);
-      
-      if (params.confirm) {
-          const appointmentSaved = await this.saveAppointment(params);
-          if (appointmentSaved) {
-              return this.SCREEN_RESPONSES.CONFIRMATION;
-          }
-          throw new Error("No se pudo guardar la cita");
-      }
-
-      return {
-          ...this.SCREEN_RESPONSES.SUMMARY,
-          data: {
-              ...params,
-              appointment_summary: this.generateAppointmentSummary(params)
-          }
-      };
-  }
-
-  async processConfirmation(params) {
-      return this.SCREEN_RESPONSES.CONFIRMATION;
-  }
-
-  // Métodos auxiliares
   async getAvailableDates() {
       const dates = [];
       const startDate = moment();
@@ -1276,84 +1150,23 @@ class FlowHandler {
   }
 
   async getAvailableStaff(service_id, location_id) {
-      const peluquerosDisponibles = await MongoDB.ListarPeluquerosDisponibles(
-          moment(),
-          location_id,
-          service_id,
-          "",
-          servicios.find(s => s.servicioID === service_id)?.duracion || 30
-      );
-
-      return Promise.all(peluquerosDisponibles.map(async id => ({
-          id: id,
-          title: await MongoDB.ObtenerNombrePeluqueroPorID(id)
-      })));
-  }
-
-  async getAvailableTimes(date, staff_id, service_id, location_id) {
-      const fechaISO = moment(date).format();
-      const duracion = servicios.find(s => s.servicioID === service_id)?.duracion || 30;
-
-      const disponibilidad = await MongoDB.VerificarDisponibilidadPeluquero(
-          staff_id,
-          fechaISO,
-          location_id,
-          duracion
-      );
-
-      return (disponibilidad.horariosDisponibles || []).map(horario => ({
-          id: horario,
-          title: horario
-      }));
-  }
-
-  async getServiceName(serviceId) {
-      const servicio = servicios.find(s => s.servicioID === serviceId);
-      return servicio ? servicio.servicio : '';
-  }
-
-  async getLocationName(locationId) {
-      const salon = salones.find(s => s.salonID === locationId);
-      return salon ? salon.nombre : '';
-  }
-
-  async saveAppointment(params) {
       try {
-          const saved = await MongoDB.GuardarEventoEnBD({
-              from: params.phone,
-              nombre: params.name,
-              salonID: params.location_id,
-              nombreServicio: params.service_id,
-              peluquero: {
-                  peluqueroID: params.staff_id,
-                  name: await MongoDB.ObtenerNombrePeluqueroPorID(params.staff_id)
-              }
-          }, 
-          moment(`${params.date} ${params.time}`).format(),
-          moment(`${params.date} ${params.time}`)
-              .add(servicios.find(s => s.servicioID === params.service_id)?.duracion || 30, 'minutes')
-              .format()
+          const peluquerosDisponibles = await MongoDB.ListarPeluquerosDisponibles(
+              moment(),
+              location_id,
+              service_id,
+              "",
+              servicios.find(s => s.servicioID === service_id)?.duracion || 30
           );
 
-          if (saved) {
-              await statisticsManager.incrementConfirmedAppointments();
-          }
-
-          return saved;
+          return Promise.all(peluquerosDisponibles.map(async id => ({
+              id: id,
+              title: await MongoDB.ObtenerNombrePeluqueroPorID(id)
+          })));
       } catch (error) {
-          console.error('Error al guardar la cita:', error);
-          await statisticsManager.incrementFailedOperations();
-          throw error;
+          console.error('Error obteniendo personal disponible:', error);
+          return [];
       }
-  }
-
-  generateAppointmentSummary(params) {
-      return `*Servicio:* ${params.service}
-*Fecha y hora:* ${moment(`${params.date} ${params.time}`).format('DD/MM/YYYY HH:mm')}
-*Salón:* ${params.location}
-*Peluquero:* ${params.staff}
-*Nombre del cliente:* ${params.name}
-*Teléfono:* ${params.phone}`;
   }
 
   handleError(error) {
@@ -1371,39 +1184,35 @@ class FlowHandler {
 const flowHandler = new FlowHandler();
 
 app.post("/flow/data", async (req, res) => {
-    console.log(`\n=== NUEVA SOLICITUD FLOW DATA (${new Date().toISOString()}) ===`);
-    console.log("\n=== INICIO PROCESAMIENTO FLOW DATA ===");
-    
-    try {
-        // 1. Descifrar la petición
-        const { decryptedBody, aesKeyBuffer, initialVectorBuffer } = decryptRequest(req.body);
-        console.log("Cuerpo descifrado:", JSON.stringify(decryptedBody, null, 2));
-        console.log("Tipo de solicitud:", decryptedBody.action);
-        console.log("Version:", decryptedBody.version);
+  console.log("\n=== INICIO PROCESAMIENTO FLOW DATA ===");
+  
+  try {
+      // 1. Descifrar la petición
+      const { decryptedBody, aesKeyBuffer, initialVectorBuffer } = decryptRequest(req.body);
+      console.log("Cuerpo descifrado:", JSON.stringify(decryptedBody, null, 2));
 
-        // 2. Procesar la solicitud usando el FlowHandler
-        const response = await flowHandler.processRequest(decryptedBody);
-        
-        // 3. Encriptar y enviar respuesta
-        console.log('Respuesta a enviar:', JSON.stringify(response, null, 2));
-        const encryptedResponse = encryptResponse(response, aesKeyBuffer, initialVectorBuffer);
-        res.send(encryptedResponse);
+      // 2. Procesar la solicitud usando el FlowHandler
+      const response = await flowHandler.processRequest(decryptedBody);
+      
+      // 3. Encriptar y enviar respuesta
+      console.log('Respuesta a enviar:', JSON.stringify(response, null, 2));
+      const encryptedResponse = encryptResponse(response, aesKeyBuffer, initialVectorBuffer);
+      res.send(encryptedResponse);
 
-    } catch (error) {
-        console.error('Error en flow/data:', error);
-        const errorResponse = flowHandler.handleError(error);
-        
-        try {
-            const encryptedError = encryptResponse(errorResponse, aesKeyBuffer, initialVectorBuffer);
-            res.status(error.statusCode || 500).send(encryptedError);
-        } catch (encryptError) {
-            console.error('Error al encriptar respuesta de error:', encryptError);
-            res.status(500).json({ error: 'Error interno del servidor' });
-        }
-    }
-
-    console.log("=== FIN PROCESAMIENTO FLOW DATA ===\n");
+  } catch (error) {
+      console.error('Error en flow/data:', error);
+      const errorResponse = flowHandler.handleError(error);
+      
+      try {
+          const encryptedError = encryptResponse(errorResponse, aesKeyBuffer, initialVectorBuffer);
+          res.status(error.statusCode || 500).send(encryptedError);
+      } catch (encryptError) {
+          console.error('Error al encriptar respuesta de error:', encryptError);
+          res.status(500).json({ error: 'Error interno del servidor' });
+      }
+  }
 });
+
 // Endpoint para confirmar la cita usando tus funciones existentes
 app.post("/flow/confirm-appointment", async (req, res) => {
     try {
