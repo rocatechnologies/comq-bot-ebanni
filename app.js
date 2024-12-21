@@ -1037,8 +1037,8 @@ class FlowHandler {
               data: {
                 available_staff: availableStaff,
                 is_staff_enabled: true,
-                is_date_enabled: false,
-                is_time_enabled: false,
+                is_date_enabled: true,
+                is_time_enabled: true,
                 selected_service: service,
                 selected_location: location
               }
@@ -1145,7 +1145,7 @@ class FlowHandler {
 
   getCentrosDisponibles() {
     return salones
-      .filter(s => ["Nervión Caballeros", "Nervión Señora", "Duque", "Sevilla Este"]
+      .filter(s => ["Nervión Caballeros", "Nervión Señoras", "Duque", "Sevilla Este"]
         .includes(s.nombre))
       .map(s => ({
         id: s.salonID,
