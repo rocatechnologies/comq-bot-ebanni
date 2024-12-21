@@ -1048,7 +1048,7 @@ class FlowHandler {
           break;
         }
 
-        ccase "APPOINTMENT_DETAILS": {
+        case "APPOINTMENT_DETAILS": {
           if (action === "data_exchange") {
             console.log("Procesando data_exchange desde APPOINTMENT_DETAILS", {
               data,
