@@ -986,7 +986,16 @@ class FlowHandler {
     console.log("\n=== PROCESANDO SOLICITUD DE FLOW ===");
     console.log("Datos recibidos:", decryptedBody);
 
-    const { action, screen_id, data = {} } = decryptedBody;
+    // Extraer valores asegurándonos de que screen se obtiene correctamente
+    const action = decryptedBody.action || '';
+    const screen = decryptedBody.screen || '';
+    const data = decryptedBody.data || {};
+
+    console.log("Valores extraídos:", {
+      action,
+      screen,
+      data
+    });
 
     try {
       // Health check
@@ -994,10 +1003,8 @@ class FlowHandler {
         return { data: { status: "active" } };
       }
 
-      console.log("action:", action);
-      console.log("screen_id:", screen_id);
-      // Condición de primera inicialización
-      if (action === "INIT" || !screen_id) {
+      // Solo inicializar si es INIT o no hay screen
+      if (action === "INIT" || screen === "") {
         console.log("Inicialización inicial del flow");
         return {
           version: "3.0",
@@ -1006,22 +1013,16 @@ class FlowHandler {
         };
       }
 
-      console.log(`Procesando pantalla ${screen_id} con acción ${action}`);
-
       // Manejar data_exchange desde WELCOME
-      if (screen_id === "WELCOME" && action === "data_exchange") {
+      if (screen === "WELCOME" && action === "data_exchange") {
         console.log("Procesando data_exchange desde WELCOME");
         
         // Obtener datos para la siguiente pantalla
         const services = this.getServiciosDisponibles();
         const locations = this.getCentrosDisponibles();
 
-        console.log("Datos preparados:", {
-          serviciosCount: services.length,
-          locationsCount: locations.length
-        });
+        console.log("Navegando a SERVICE_AND_LOCATION con datos preparados");
 
-        // Retornar la siguiente pantalla con sus datos
         return {
           version: "3.0",
           screen: "SERVICE_AND_LOCATION",
@@ -1034,35 +1035,9 @@ class FlowHandler {
         };
       }
 
-      // Manejar data_exchange desde SERVICE_AND_LOCATION
-      if (screen_id === "SERVICE_AND_LOCATION" && action === "data_exchange") {
-        console.log("Procesando data_exchange desde SERVICE_AND_LOCATION");
-        const { service, location } = data;
-        
-        if (!service || !location) {
-          throw new Error("Faltan datos de servicio o ubicación");
-        }
-
-        const availableDates = await this.getAvailableDates(location);
-        const availableStaff = await this.getAvailableStaff(service, location);
-        const availableTimes = this.getInitialAvailableTimes();
-
-        return {
-          version: "3.0",
-          screen: "APPOINTMENT_DETAILS",
-          data: {
-            available_dates: availableDates,
-            available_staff: availableStaff,
-            available_times: availableTimes,
-            selected_service: service,
-            selected_location: location
-          }
-        };
-      }
-
       // Si llegamos aquí es que no se manejó la acción
-      console.log("Acción no manejada:", { screen_id, action });
-      throw new Error(`Acción no soportada: ${action} en pantalla ${screen_id}`);
+      console.log("Acción no manejada:", { screen, action });
+      throw new Error(`Acción no soportada: ${action} en pantalla ${screen}`);
 
     } catch (error) {
       console.error("Error procesando request:", error);
@@ -1095,47 +1070,6 @@ class FlowHandler {
         description: s.address
       }));
   }
-
-  async getAvailableDates(locationId) {
-    const dates = [];
-    const startDate = moment();
-    
-    for (let i = 0; i < 30; i++) {
-      const currentDate = startDate.clone().add(i, 'days');
-      if (currentDate.day() !== 0 || currentDate.month() === 11) {
-        dates.push({
-          id: currentDate.format('YYYY-MM-DD'),
-          title: currentDate.format('DD/MM/YYYY')
-        });
-      }
-    }
-    return dates;
-  }
-
-  getInitialAvailableTimes() {
-    const times = [];
-    const startTime = moment().set({hour: 10, minute: 0});
-    const endTime = moment().set({hour: 21, minute: 30});
-
-    while (startTime.isSameOrBefore(endTime)) {
-      times.push({
-        id: startTime.format('HH:mm'),
-        title: startTime.format('HH:mm')
-      });
-      startTime.add(30, 'minutes');
-    }
-    return times;
-  }
-
-  async getAvailableStaff(serviceId, locationId) {
-    return peluqueros
-      .filter(p => p.salonID === locationId && 
-                   p.services.some(s => s.toString() === serviceId))
-      .map(p => ({
-        id: p.peluqueroID,
-        title: p.name
-      }));
-  }
 }
 
 app.post("/flow/data", async (req, res) => {
@@ -1165,7 +1099,6 @@ app.post("/flow/data", async (req, res) => {
   } catch (error) {
     console.error('Error en flow/data:', error);
     
-    // Generar respuesta de error
     const errorResponse = {
       success: false,
       error: {
@@ -1175,12 +1108,11 @@ app.post("/flow/data", async (req, res) => {
     };
     
     try {
-      // Encriptar la respuesta de error
       const encryptedError = encryptResponse(errorResponse, aesKeyBuffer, initialVectorBuffer);
       res.status(error.statusCode || 500).send(encryptedError);
     } catch (encryptError) {
       console.error('Error al encriptar respuesta de error:', encryptError);
-      res.status(500).send(encryptResponse({ error: 'Error interno del servidor' }, aesKeyBuffer, initialVectorBuffer));
+      res.status(500).json({ error: 'Error interno del servidor' });
     }
   }
 });
