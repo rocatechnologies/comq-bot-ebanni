@@ -975,6 +975,7 @@ app.post("/flow/data", async (req, res) => {
     try {
         // Descifrar la petición
         const { decryptedBody, aesKeyBuffer, initialVectorBuffer } = decryptRequest(req.body);
+        console.log("Cuerpo descifrado:", JSON.stringify(decryptedBody, null, 2));
         
         let response;
         
@@ -1084,8 +1085,10 @@ app.post("/flow/data", async (req, res) => {
                 break;
         }
       }
-
-        res.json(response);
+      console.log('------------------------------------------');
+        console.log('Respuesta a enviar:', JSON.stringify(response, null, 2));
+        const encryptedResponse = encryptResponse(response, aesKeyBuffer, initialVectorBuffer);
+        res.send(encryptedResponse);
     } catch (error) {
         console.error('Error en flow/data:', error);
         await LogError(
