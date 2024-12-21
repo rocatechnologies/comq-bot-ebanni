@@ -979,140 +979,93 @@ const ENDPOINT_TIMEOUT = 30000; // 30 segundos
  */
 class FlowHandler {
   constructor() {
+    this.currentScreen = null;
+    this.currentData = {};
   }
 
-  /**
-   * Procesa la request descifrada que nos llega de /flow/data
-   */
   async processRequest(decryptedBody) {
+    console.log("\n=== PROCESANDO SOLICITUD DE FLOW ===");
+    console.log("Datos recibidos:", decryptedBody);
+
     const { action, screen_id, data = {} } = decryptedBody;
 
-  console.log("=== PROCESANDO SOLICITUD DE FLOW ===");
-  console.log("Datos recibidos:", decryptedBody);
+    // Health-check
+    if (action === "ping") {
+      return { data: { status: "active" } };
+    }
 
-  // Health-check
-  if (action === "ping") {
-    return { data: { status: "active" } };
-  }
+    // Inicialización del flow
+    if (!screen_id || action === "INIT") {
+      return {
+        version: "3.0",
+        screen: "WELCOME",
+        data: {}
+      };
+    }
 
-  // Si NO hay screen_id o la acción es INIT,
-  console.log("screen_id:", screen_id);
-  // Devuelve la pantalla WELCOME como inicio
-  if (!screen_id || action === "INIT") {
-    return {
-      version: "3.0",
-      screen: "WELCOME",
-      data: {}
-    };
-  }
+    // Manejo de la transición desde WELCOME
+    if (screen_id === "WELCOME" && action === "goto_service") {
+      const servicesData = await this.getServiciosDisponibles();
+      const locationsData = await this.getCentrosDisponibles();
 
-  // Al pulsar "Empezar" en la pantalla WELCOME
-  // (action === "goto_service" && screen_id === "WELCOME")
-  if (action === "goto_service" && screen_id === "WELCOME") {
-    return {
-      version: "3.0",
-      screen: "SERVICE_AND_LOCATION",
-      data: {
-        services: this.getServiciosDisponibles(),
-        locations: this.getCentrosDisponibles(),
-        is_services_enabled: true,
-        is_location_enabled: true
-      }
-    };
-  }
+      return {
+        version: "3.0",
+        screen: "SERVICE_AND_LOCATION",
+        data: {
+          services: servicesData,
+          locations: locationsData,
+          is_services_enabled: true,
+          is_location_enabled: true
+        }
+      };
+    }
 
-  // Si estás en SERVICE_AND_LOCATION y el usuario hace data_exchange,
-  // pasas a APPOINTMENT_DETAILS (ejemplo)
-  if (action === "data_exchange" && screen_id === "SERVICE_AND_LOCATION") {
-    return {
-      version: "3.0",
-      screen: "APPOINTMENT_DETAILS",
-      data: {
-        available_dates: [],
-        available_staff: [],
-        available_times: []
-      }
-    };
-  }
+    // Manejo de intercambio de datos
+    if (action === "data_exchange") {
+      return await this.handleDataExchange(screen_id, data);
+    }
 
-    // Si llega una acción desconocida
     throw new Error(`Acción no soportada: ${action}`);
   }
 
-  /**
-   * Maneja cada pantalla distinta (SERVICE_AND_LOCATION, APPOINTMENT_DETAILS, etc.)
-   */
   async handleDataExchange(screen_id, data) {
     switch(screen_id) {
-      case "WELCOME":
-      return this.handleWelcome(data);
       case "SERVICE_AND_LOCATION":
-        return this.handleServiceAndLocation(data);
+        return await this.transitionToAppointmentDetails(data);
       case "APPOINTMENT_DETAILS":
-        return this.handleAppointmentDetails(data);
+        return await this.transitionToCustomerDetails(data);
+      case "CUSTOMER_DETAILS":
+        return await this.transitionToSummary(data);
+      case "SUMMARY":
+        return await this.transitionToConfirmation(data);
       default:
         throw new Error(`Pantalla no soportada: ${screen_id}`);
     }
   }
 
-  async handleWelcome(data) {
-    // Ejemplo: Si aquí no necesitas nada, solo devuelves la misma pantalla.
-    // O, si el usuario pulsó "Empezar", podrías preparar la transición a SERVICE_AND_LOCATION.
-    // Por ahora, devuelves la pantalla WELCOME a modo de demostración.
-    return {
-      screen: "WELCOME",
-      data: {}
-    };
-  }
-
-  /**
-   * Lógica para la pantalla "SERVICE_AND_LOCATION"
-   */
-  async handleServiceAndLocation(data) {
-    // Ejemplo: si el usuario ya seleccionó servicio y centro, aquí puedes validar
-    // o devolver la misma pantalla con cambios.
-    return {
-      screen: "SERVICE_AND_LOCATION",
-      data: {
-        services: this.getServiciosDisponibles(),
-        locations: this.getCentrosDisponibles(),
-        is_services_enabled: true,
-        // Puedes deshabilitar si data.service está presente
-        is_location_enabled: !data.service
-      }
-    };
-  }
-
-  /**
-   * Lógica para la pantalla "APPOINTMENT_DETAILS"
-   */
-  async handleAppointmentDetails(data) {
+  async transitionToAppointmentDetails(data) {
     const { service_id, location_id } = data;
-
-    if (!service_id || !location_id) {
-      throw new Error("Faltan service_id o location_id");
-    }
-
-    // Ejemplo: armar fechas disponibles y staff
-    const availableDates = await this.getAvailableDates();
+    
+    // Obtener datos necesarios para la siguiente pantalla
+    const availableDates = await this.getAvailableDates(location_id);
     const availableStaff = await this.getAvailableStaff(service_id, location_id);
+    const availableTimes = await this.getAvailableTimes(service_id, location_id);
 
     return {
+      version: "3.0",
       screen: "APPOINTMENT_DETAILS",
       data: {
         available_dates: availableDates,
         available_staff: availableStaff,
-        available_times: [],
+        available_times: availableTimes,
         is_staff_enabled: true,
         is_date_enabled: true,
-        is_time_enabled: false
+        is_time_enabled: true
       }
     };
   }
 
-  // Ejemplo: obtener lista de servicios
-  getServiciosDisponibles() {
-    // 'servicios' es una array global con la info
+  async getServiciosDisponibles() {
     return servicios.map(s => ({
       id: s.servicioID,
       title: s.servicio,
@@ -1120,8 +1073,7 @@ class FlowHandler {
     }));
   }
 
-  // Ejemplo: obtener lista de centros
-  getCentrosDisponibles() {
+  async getCentrosDisponibles() {
     return salones.map(s => ({
       id: s.salonID,
       title: s.nombre,
@@ -1181,21 +1133,16 @@ app.post("/flow/data", async (req, res) => {
   let aesKeyBuffer, initialVectorBuffer;
   
   try {
-      // 1. Descifrar la petición
-      const decryptResult = decryptRequest(req.body);
-      const { decryptedBody } = decryptResult;
-      aesKeyBuffer = decryptResult.aesKeyBuffer;
-      initialVectorBuffer = decryptResult.initialVectorBuffer;
+    const decryptResult = decryptRequest(req.body);
+    const { decryptedBody } = decryptResult;
+    aesKeyBuffer = decryptResult.aesKeyBuffer;
+    initialVectorBuffer = decryptResult.initialVectorBuffer;
 
-      console.log("Cuerpo descifrado:", JSON.stringify(decryptedBody, null, 2));
-
-      // 2. Procesar la solicitud usando el FlowHandler
-      const response = await flowHandler.processRequest(decryptedBody);
-      console.log('Respuesta a enviar:', JSON.stringify(response, null, 2));
-
-      // 3. Encriptar y enviar respuesta
-      const encryptedResponse = encryptResponse(response, aesKeyBuffer, initialVectorBuffer);
-      res.send(encryptedResponse);
+    const flowHandler = new FlowHandler();
+    const response = await flowHandler.processRequest(decryptedBody);
+    
+    const encryptedResponse = encryptResponse(response, aesKeyBuffer, initialVectorBuffer);
+    res.send(encryptedResponse);
 
   } catch (error) {
       console.error('Error en flow/data:', error);
