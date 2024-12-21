@@ -1887,7 +1887,8 @@ class Conversation {
               line.includes("BUSCARCITA") ||
               line.includes("MODCITA") ||
               line.includes("SALON") ||
-              line.includes("CENTROINFO")
+              line.includes("CENTROINFO") ||
+              line.includes("FLOWCITA") 
             ) {
               console.log("Añadiendo comando a la cola:", line);
               this.commandQueue.addCommand(line);
@@ -1960,7 +1961,6 @@ class Conversation {
         rtn = await this.ProcesarInfoCentro(gpt.message);
         break;
         case GPTEnum.FLOWCITA:
-          console.log("flowcita");
           rtn = await this.ProcesarFlow(gpt.message);
           break;
       case GPTEnum.NONE:
