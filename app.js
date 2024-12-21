@@ -1018,26 +1018,45 @@ class FlowHandler {
       return { data: { status: "active" } };
     }
 
-    // Acción de inicio: manda la pantalla de "SERVICE_AND_LOCATION"
-    if (action === "INIT" || !screen_id) {
-      console.log("Inicializando flow...");
-      return {
-        version: "3.0",
-        screen: "SERVICE_AND_LOCATION",
-        data: {
-          services: this.getServiciosDisponibles(),
-          locations: this.getCentrosDisponibles(),
-          is_services_enabled: true,
-          is_location_enabled: true
-        }
-      };
-    }
+    // Acción de inicio: mostrar pantalla WELCOME sin data
+  if (action === "INIT" || !screen_id) {
+    return {
+      version: "3.0",
+      screen: "WELCOME",
+      data: {}
+    };
+  }
 
-    // Manejo de interacción con una pantalla concreta
-    if (action === "data_exchange") {
-      console.log(`Procesando data_exchange para la pantalla: ${screen_id}`);
-      return this.handleDataExchange(screen_id, data);
-    }
+  // Cuando el usuario pulse “Empezar” en WELCOME
+  if (action === "goto_service" && screen_id === "WELCOME") {
+    return {
+      version: "3.0",
+      screen: "SERVICE_AND_LOCATION",
+      data: {
+        services: this.getServiciosDisponibles(),
+        locations: this.getCentrosDisponibles(),
+        is_services_enabled: true,
+        is_location_enabled: true
+      }
+    };
+  }
+
+  // Ejemplo de manejo de SERVICE_AND_LOCATION → APPOINTMENT_DETAILS
+  if (action === "data_exchange" && screen_id === "SERVICE_AND_LOCATION") {
+    // Aquí harías validaciones y luego devuelves APPOINTMENT_DETAILS
+    return {
+      version: "3.0",
+      screen: "APPOINTMENT_DETAILS",
+      data: {
+        available_dates: [],      // Tus datos
+        available_staff: [],
+        available_times: [],
+        is_staff_enabled: true,
+        is_date_enabled: true,
+        is_time_enabled: true
+      }
+    };
+  }
 
     // Si llega una acción desconocida
     throw new Error(`Acción no soportada: ${action}`);
