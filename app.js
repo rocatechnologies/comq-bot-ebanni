@@ -993,10 +993,12 @@ class FlowHandler {
     console.log("Valores extraídos:", { action, screen, data });
 
     try {
+      // Handle ping action
       if (action === "ping") {
         return { data: { status: "active" } };
       }
 
+      // Initial screen or INIT action
       if (action === "INIT" || screen === "") {
         return {
           version: "3.0",
@@ -1005,6 +1007,7 @@ class FlowHandler {
         };
       }
 
+      // Process each screen
       switch(screen) {
         case "WELCOME": {
           if (action === "data_exchange") {
@@ -1056,7 +1059,6 @@ class FlowHandler {
               screen
             });
 
-            // Si tenemos staff y fecha, obtener horarios específicos
             if (data.staff && data.date) {
               console.log("Obteniendo horarios disponibles para:", {
                 staff: data.staff,
@@ -1065,11 +1067,9 @@ class FlowHandler {
                 location: data.location
               });
 
-              // Convertir la fecha al formato correcto
               const dateMoment = moment(data.date).tz("Europe/Madrid");
               console.log("Fecha convertida:", dateMoment.format());
 
-              // Buscar horarios disponibles
               const horarios = await MongoDB.BuscarHorariosDisponiblesPeluquero(
                 data.staff,
                 dateMoment,
@@ -1079,7 +1079,6 @@ class FlowHandler {
 
               console.log("Horarios devueltos por MongoDB:", horarios);
 
-              // Convertir al formato que espera el flow
               const availableTimes = horarios.map(hora => ({
                 id: hora,
                 title: hora
@@ -1087,7 +1086,6 @@ class FlowHandler {
 
               console.log("Horarios formateados para el flow:", availableTimes);
 
-              // Si no hay horarios, devolver mensaje de error
               if (availableTimes.length === 0) {
                 console.log("No se encontraron horarios disponibles");
                 return {
@@ -1100,7 +1098,6 @@ class FlowHandler {
                 };
               }
 
-              // Devolver la respuesta con los horarios
               return {
                 version: "3.0",
                 screen: "APPOINTMENT_DETAILS",
@@ -1113,9 +1110,8 @@ class FlowHandler {
                   selected_location: data.location
                 }
               };
-            } 
-            
-            // Si llegamos aquí con time seleccionado, avanzar a CUSTOMER_DETAILS
+            }
+
             if (data.time) {
               console.log("Avanzando a CUSTOMER_DETAILS con datos completos");
               return {
@@ -1131,7 +1127,6 @@ class FlowHandler {
               };
             }
 
-            // Si no tenemos todos los datos necesarios, mantener la pantalla actual
             console.log("Manteniendo APPOINTMENT_DETAILS con datos actuales");
             return {
               version: "3.0",
@@ -1188,7 +1183,6 @@ class FlowHandler {
       locationId
     });
 
-    // Filtrar peluqueros por centro
     const staffDelCentro = peluqueros.filter(p => p.salonID === locationId);
     
     if (staffDelCentro.length === 0) {
@@ -1196,7 +1190,6 @@ class FlowHandler {
       return [];
     }
 
-    // Mapear al formato requerido
     return staffDelCentro.map(p => ({
       id: p.peluqueroID,
       title: p.name
@@ -1266,66 +1259,65 @@ app.post("/flow/data", async (req, res) => {
 });
 
 
-// Endpoint para confirmar la cita usando tus funciones existentes
 app.post("/flow/confirm-appointment", async (req, res) => {
-    try {
-        const {
-            service_id,
-            location_id,
-            date,
-            time,
-            staff_id,
-            customer_name,
-            customer_phone
-        } = req.body;
+  try {
+      const {
+          service_id,
+          location_id,
+          date,
+          time,
+          staff_id,
+          customer_name,
+          customer_phone
+      } = req.body;
 
-        // Crear un objeto de conversación temporal para usar tus funciones existentes
-        const tempConversation = new Conversation();
-        tempConversation.from = customer_phone;
-        tempConversation.nombre = customer_name;
-        tempConversation.salonID = location_id;
-        tempConversation.nombreServicio = service_id;
-        tempConversation.peluquero = peluqueros.find(p => p.peluqueroID === staff_id);
-        
-        const horaInicio = moment(`${date} ${time}`);
-        const horaFin = horaInicio.clone().add(
-            servicios.find(s => s.servicioID === service_id)?.duracion || 30,
-            'minutes'
-        );
+      // Crear un objeto de conversación temporal para usar tus funciones existentes
+      const tempConversation = new Conversation();
+      tempConversation.from = customer_phone;
+      tempConversation.nombre = customer_name;
+      tempConversation.salonID = location_id;
+      tempConversation.nombreServicio = service_id;
+      tempConversation.peluquero = peluqueros.find(p => p.peluqueroID === staff_id);
+      
+      const horaInicio = moment(`${date} ${time}`);
+      const horaFin = horaInicio.clone().add(
+          servicios.find(s => s.servicioID === service_id)?.duracion || 30,
+          'minutes'
+      );
 
-        // Usar tu función existente para guardar la cita
-        const saved = await MongoDB.GuardarEventoEnBD(
-            tempConversation,
-            horaInicio.format(),
-            horaFin.format()
-        );
+      // Usar tu función existente para guardar la cita
+      const saved = await MongoDB.GuardarEventoEnBD(
+          tempConversation,
+          horaInicio.format(),
+          horaFin.format()
+      );
 
-        if (saved) {
-            await statisticsManager.incrementConfirmedAppointments();
-            await LogSuccess(
-                customer_phone,
-                'Cita guardada desde flow',
-                location_id,
-                await MongoDB.ObtenerSalonPorSalonID(location_id)?.nombre
-            );
-            
-            res.json({ success: true });
-        } else {
-            throw new Error('No se pudo guardar la cita');
-        }
+      if (saved) {
+          await statisticsManager.incrementConfirmedAppointments();
+          await LogSuccess(
+              customer_phone,
+              'Cita guardada desde flow',
+              location_id,
+              await MongoDB.ObtenerSalonPorSalonID(location_id)?.nombre
+          );
+          
+          res.json({ success: true });
+      } else {
+          throw new Error('No se pudo guardar la cita');
+      }
 
-    } catch (error) {
-        console.error('Error al confirmar la cita:', error);
-        await statisticsManager.incrementFailedOperations();
-        await LogError(
-            req.body?.customer_phone || 'unknown',
-            'Error al confirmar cita desde flow',
-            error,
-            req.body?.location_id,
-            await MongoDB.ObtenerSalonPorSalonID(req.body?.location_id)?.nombre
-        );
-        res.status(500).json({ success: false });
-    }
+  } catch (error) {
+      console.error('Error al confirmar la cita:', error);
+      await statisticsManager.incrementFailedOperations();
+      await LogError(
+          req.body?.customer_phone || 'unknown',
+          'Error al confirmar cita desde flow',
+          error,
+          req.body?.location_id,
+          await MongoDB.ObtenerSalonPorSalonID(req.body?.location_id)?.nombre
+      );
+      res.status(500).json({ success: false });
+  }
 });
 
 app.get("/test", (req, res) => {
