@@ -1918,7 +1918,7 @@ class Conversation {
         DoLog(rtn.message);
 
         // Llamada a LogError con la fecha en la zona horaria de Madrid
-        await LogError(curr.from, rtn.message, this.salonID, this.salonNombre);
+        await LogError(this.from, rtn.message, this.salonID, this.salonNombre);
 
         this.AddMsg(rtn);
         // obtiene la conversacion entera y se la pasa a chatgpt para que reanude
@@ -1935,7 +1935,7 @@ class Conversation {
       } catch (ex) {
         // Captura y registra el error con su mensaje original
         await LogError(
-          curr.from,
+          this.from,
           `Error en DoWatchDog`,
           ex,
           this.salonID,
@@ -2225,7 +2225,7 @@ class Conversation {
   } catch (error) {
     DoLog(`Error al buscar citas próximas: ${error}`, Log.Error);
     await LogError(
-      curr.from,
+      this.from,
       "Error al buscar citas próximas",
       error,
       this.salonID,
@@ -2601,7 +2601,7 @@ class Conversation {
       const errorMsg = `Error al procesar la disponibilidad: ${error.message}`;
       DoLog(errorMsg, Log.Error);
       await LogError(
-        curr.from,
+        this.from,
         errorMsg,
         error,
         this.salonID,
@@ -2784,7 +2784,7 @@ class Conversation {
       DoLog(`Error crítico durante el procesamiento: ${ex.message}`);
       DoLog(`Stack trace: ${ex.stack}`);
       await LogError(
-        curr.from,
+        this.from,
         `Error al procesar la cita`,
         ex,
         this.salonID,
@@ -2814,7 +2814,7 @@ class Conversation {
       // Incrementar el contador de operaciones fallidas usando la clase
       await statisticsManager.incrementFailedOperations();
       await LogError(
-        curr.from,
+        this.from,
         `Error al procesar la solicitud`,
         rtn.message,
         this.salonID,
@@ -2995,7 +2995,7 @@ class Conversation {
     } catch (ex) {
       DoLog(`Error al obtener la información del centro: ${ex}`, Log.Error);
       await LogError(
-        curr.from,
+        cthis.from,
         `Error al procesar la solicitud de información del centro`,
         ex,
         this.salonID,
@@ -3315,7 +3315,7 @@ class Conversation {
         rtn.message = "Hubo un error al iniciar el flow de cita.";
         await statisticsManager.incrementFailedOperations();
         await LogError(
-          curr.from,
+          this.from,
             'Error al procesar flow de cita',
             error,
             this.salonID,
