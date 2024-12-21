@@ -972,6 +972,347 @@ const CACHE_DURATION = 5 * 60 * 1000; // 5 minutos
 const ENDPOINT_TIMEOUT = 30000; // 30 segundos
 
 
+class FlowHandler {
+  constructor() {
+      // Constantes para las respuestas de cada pantalla
+      this.SCREEN_RESPONSES = {
+          SERVICE_AND_LOCATION: {
+              screen: "SERVICE_AND_LOCATION",
+              data: {
+                  services: [],
+                  locations: [],
+                  is_location_enabled: true
+              }
+          },
+          APPOINTMENT_DETAILS: {
+              screen: "APPOINTMENT_DETAILS",
+              data: {
+                  available_dates: [],
+                  available_staff: [],
+                  available_times: [],
+                  is_staff_enabled: true,
+                  is_date_enabled: true,
+                  is_time_enabled: true
+              }
+          },
+          CUSTOMER_DETAILS: {
+              screen: "CUSTOMER_DETAILS",
+              data: {
+                  service: "",
+                  location: "",
+                  staff: "",
+                  date: "",
+                  time: ""
+              }
+          },
+          SUMMARY: {
+              screen: "SUMMARY",
+              data: {
+                  appointment_summary: ""
+              }
+          },
+          CONFIRMATION: {
+              screen: "CONFIRMATION",
+              data: {
+                  confirmation_message: "Tu cita ha sido confirmada exitosamente."
+              }
+          }
+      };
+  }
+
+  async processRequest(decryptedBody) {
+      console.log("\n=== PROCESANDO SOLICITUD DE FLOW ===");
+      console.log('Datos recibidos:', JSON.stringify(decryptedBody, null, 2));
+
+      const { screen_id, action, params = {} } = decryptedBody;
+
+      try {
+          // Manejar health check
+          if (action === "ping") {
+              console.log("Health check detectado");
+              return {
+                  data: {
+                      status: "active"
+                  }
+              };
+          }
+
+          // Manejar error notification
+          if (params?.error) {
+              console.log("Error notification recibida:", params.error);
+              return {
+                  data: {
+                      acknowledged: true
+                  }
+              };
+          }
+
+          // Manejar solicitud inicial del flow
+          if (!screen_id || action === "INIT") {
+              console.log("Iniciando nuevo flow");
+              return await this.getInitialScreen();
+          }
+
+          // Procesar pantallas según el screen_id
+          console.log(`Procesando pantalla: ${screen_id}`);
+          const handler = this.getScreenHandler(screen_id);
+          if (!handler) {
+              throw new Error(`Screen_id no soportado: ${screen_id}`);
+          }
+
+          return await handler.call(this, params);
+      } catch (error) {
+          console.error('Error procesando solicitud:', error);
+          throw error;
+      }
+  }
+
+  getScreenHandler(screenId) {
+      const handlers = {
+          'SERVICE_AND_LOCATION': this.processServiceAndLocation,
+          'APPOINTMENT_DETAILS': this.processAppointmentDetails,
+          'CUSTOMER_DETAILS': this.processCustomerDetails,
+          'SUMMARY': this.processSummary,
+          'CONFIRMATION': this.processConfirmation
+      };
+      return handlers[screenId];
+  }
+
+  async getInitialScreen() {
+      console.log('Obteniendo pantalla inicial...');
+      const response = {
+          ...this.SCREEN_RESPONSES.SERVICE_AND_LOCATION,
+          data: {
+              services: servicios.map(servicio => ({
+                  id: servicio.servicioID,
+                  title: servicio.servicio
+              })),
+              locations: salones
+                  .filter(salon => salon.salonID)
+                  .map(salon => ({
+                      id: salon.salonID,
+                      title: salon.nombre,
+                      address: salon.address
+                  })),
+              is_location_enabled: true
+          }
+      };
+      
+      console.log('Respuesta inicial:', JSON.stringify(response, null, 2));
+      return response;
+  }
+
+  async processServiceAndLocation(params) {
+      console.log('Procesando servicio y ubicación:', params);
+      
+      const { service_id, location_id } = params;
+      
+      if (!service_id && !location_id) {
+          return await this.getInitialScreen();
+      }
+
+      const availableDates = await this.getAvailableDates();
+      const availableStaff = await this.getAvailableStaff(service_id, location_id);
+
+      return {
+          ...this.SCREEN_RESPONSES.APPOINTMENT_DETAILS,
+          data: {
+              available_dates: availableDates,
+              available_staff: availableStaff,
+              available_times: [],
+              is_staff_enabled: true,
+              is_date_enabled: true,
+              is_time_enabled: false
+          }
+      };
+  }
+
+  async processAppointmentDetails(params) {
+      console.log('Procesando detalles de cita:', params);
+      
+      const { service_id, location_id, date, staff_id } = params;
+      
+      if (!service_id || !location_id) {
+          throw new Error("Faltan parámetros requeridos");
+      }
+
+      const response = {
+          ...this.SCREEN_RESPONSES.APPOINTMENT_DETAILS,
+          data: {
+              service: await this.getServiceName(service_id),
+              location: await this.getLocationName(location_id),
+              available_dates: await this.getAvailableDates(),
+              available_staff: await this.getAvailableStaff(service_id, location_id),
+              available_times: [],
+              is_staff_enabled: true,
+              is_date_enabled: true,
+              is_time_enabled: Boolean(date && staff_id)
+          }
+      };
+
+      if (date && staff_id) {
+          response.data.available_times = await this.getAvailableTimes(
+              date, staff_id, service_id, location_id
+          );
+      }
+
+      return response;
+  }
+
+  async processCustomerDetails(params) {
+      console.log('Procesando detalles del cliente:', params);
+      
+      const { name, phone } = params;
+      if (!name || !phone) {
+          throw new Error("Nombre y teléfono son requeridos");
+      }
+
+      return {
+          ...this.SCREEN_RESPONSES.CUSTOMER_DETAILS,
+          data: {
+              ...params,
+              appointment_summary: this.generateAppointmentSummary(params)
+          }
+      };
+  }
+
+  async processSummary(params) {
+      console.log('Procesando resumen:', params);
+      
+      if (params.confirm) {
+          const appointmentSaved = await this.saveAppointment(params);
+          if (appointmentSaved) {
+              return this.SCREEN_RESPONSES.CONFIRMATION;
+          }
+          throw new Error("No se pudo guardar la cita");
+      }
+
+      return {
+          ...this.SCREEN_RESPONSES.SUMMARY,
+          data: {
+              ...params,
+              appointment_summary: this.generateAppointmentSummary(params)
+          }
+      };
+  }
+
+  async processConfirmation(params) {
+      return this.SCREEN_RESPONSES.CONFIRMATION;
+  }
+
+  // Métodos auxiliares
+  async getAvailableDates() {
+      const dates = [];
+      const startDate = moment();
+      
+      for (let i = 0; i < 30; i++) {
+          const currentDate = startDate.clone().add(i, 'days');
+          if (currentDate.day() !== 0 || currentDate.month() === 11) {
+              dates.push({
+                  id: currentDate.format('YYYY-MM-DD'),
+                  title: currentDate.format('DD/MM/YYYY')
+              });
+          }
+      }
+      
+      return dates;
+  }
+
+  async getAvailableStaff(service_id, location_id) {
+      const peluquerosDisponibles = await MongoDB.ListarPeluquerosDisponibles(
+          moment(),
+          location_id,
+          service_id,
+          "",
+          servicios.find(s => s.servicioID === service_id)?.duracion || 30
+      );
+
+      return Promise.all(peluquerosDisponibles.map(async id => ({
+          id: id,
+          title: await MongoDB.ObtenerNombrePeluqueroPorID(id)
+      })));
+  }
+
+  async getAvailableTimes(date, staff_id, service_id, location_id) {
+      const fechaISO = moment(date).format();
+      const duracion = servicios.find(s => s.servicioID === service_id)?.duracion || 30;
+
+      const disponibilidad = await MongoDB.VerificarDisponibilidadPeluquero(
+          staff_id,
+          fechaISO,
+          location_id,
+          duracion
+      );
+
+      return (disponibilidad.horariosDisponibles || []).map(horario => ({
+          id: horario,
+          title: horario
+      }));
+  }
+
+  async getServiceName(serviceId) {
+      const servicio = servicios.find(s => s.servicioID === serviceId);
+      return servicio ? servicio.servicio : '';
+  }
+
+  async getLocationName(locationId) {
+      const salon = salones.find(s => s.salonID === locationId);
+      return salon ? salon.nombre : '';
+  }
+
+  async saveAppointment(params) {
+      try {
+          const saved = await MongoDB.GuardarEventoEnBD({
+              from: params.phone,
+              nombre: params.name,
+              salonID: params.location_id,
+              nombreServicio: params.service_id,
+              peluquero: {
+                  peluqueroID: params.staff_id,
+                  name: await MongoDB.ObtenerNombrePeluqueroPorID(params.staff_id)
+              }
+          }, 
+          moment(`${params.date} ${params.time}`).format(),
+          moment(`${params.date} ${params.time}`)
+              .add(servicios.find(s => s.servicioID === params.service_id)?.duracion || 30, 'minutes')
+              .format()
+          );
+
+          if (saved) {
+              await statisticsManager.incrementConfirmedAppointments();
+          }
+
+          return saved;
+      } catch (error) {
+          console.error('Error al guardar la cita:', error);
+          await statisticsManager.incrementFailedOperations();
+          throw error;
+      }
+  }
+
+  generateAppointmentSummary(params) {
+      return `*Servicio:* ${params.service}
+*Fecha y hora:* ${moment(`${params.date} ${params.time}`).format('DD/MM/YYYY HH:mm')}
+*Salón:* ${params.location}
+*Peluquero:* ${params.staff}
+*Nombre del cliente:* ${params.name}
+*Teléfono:* ${params.phone}`;
+  }
+
+  handleError(error) {
+      console.error('Error en el flow:', error);
+      return {
+          success: false,
+          error: {
+              message: error.message || 'Error interno del servidor',
+              code: error.statusCode || 500
+          }
+      };
+  }
+}
+
+const flowHandler = new FlowHandler();
+
 app.post("/flow/data", async (req, res) => {
   console.log("\n=== INICIO PROCESAMIENTO FLOW DATA ===");
   
@@ -980,175 +1321,29 @@ app.post("/flow/data", async (req, res) => {
       const { decryptedBody, aesKeyBuffer, initialVectorBuffer } = decryptRequest(req.body);
       console.log("Cuerpo descifrado:", JSON.stringify(decryptedBody, null, 2));
 
-      let response;
+      // 2. Procesar la solicitud usando el FlowHandler
+      const response = await flowHandler.processRequest(decryptedBody);
       
-      // 2. Verificar si es un health check o una solicitud de datos
-      if (decryptedBody.action === "ping" || !decryptedBody.screen_id) {
-          console.log('Health check detectado');
-          response = {
-              data: {
-                  status: "active"
-              }
-          };
-      } else {
-          // 3. Procesar solicitud de datos del flow
-          const { screen_id, params = {} } = decryptedBody;
-          console.log('Procesando pantalla:', screen_id, 'con params:', params);
-          
-          response = {
-              success: true,
-              data: {}
-          };
-
-          switch(screen_id) {
-              case "SERVICE_AND_LOCATION":
-                  console.log('Procesando servicios y ubicaciones...');
-                  response.data = await processServiceAndLocation();
-                  break;
-
-              case "APPOINTMENT_DETAILS":
-                  console.log('Procesando detalles de cita...');
-                  response.data = await processAppointmentDetails(params);
-                  break;
-
-              case "SELECT_TIME":
-                  console.log('Procesando selección de hora...');
-                  response.data = await processTimeSelection(params);
-                  break;
-
-              default:
-                  console.log(`Screen_id no reconocido: ${screen_id}`);
-                  throw new Error(`Screen_id no soportado: ${screen_id}`);
-          }
-      }
-
-      // 4. Encriptar y enviar respuesta
-      console.log('------------------------------------------');
+      // 3. Encriptar y enviar respuesta
       console.log('Respuesta a enviar:', JSON.stringify(response, null, 2));
       const encryptedResponse = encryptResponse(response, aesKeyBuffer, initialVectorBuffer);
       res.send(encryptedResponse);
 
   } catch (error) {
       console.error('Error en flow/data:', error);
-      handleFlowError(error, res, aesKeyBuffer, initialVectorBuffer);
+      const errorResponse = flowHandler.handleError(error);
+      
+      try {
+          const encryptedError = encryptResponse(errorResponse, aesKeyBuffer, initialVectorBuffer);
+          res.status(error.statusCode || 500).send(encryptedError);
+      } catch (encryptError) {
+          console.error('Error al encriptar respuesta de error:', encryptError);
+          res.status(500).json({ error: 'Error interno del servidor' });
+      }
   }
 
   console.log("=== FIN PROCESAMIENTO FLOW DATA ===\n");
 });
-
-// Funciones auxiliares para procesar cada pantalla
-async function processServiceAndLocation() {
-  console.log('Obteniendo lista de servicios y ubicaciones...');
-  
-  const servicesList = servicios.map(servicio => ({
-      id: servicio.servicioID,
-      title: servicio.servicio
-  }));
-  console.log(`Encontrados ${servicesList.length} servicios`);
-
-  const locationsList = salones
-      .filter(salon => salon.salonID)
-      .map(salon => ({
-          id: salon.salonID,
-          title: salon.nombre
-      }));
-  console.log(`Encontrados ${locationsList.length} salones`);
-
-  return {
-      services: servicesList,
-      locations: locationsList
-  };
-}
-
-async function processAppointmentDetails(params) {
-  const { service_id, location_id } = params;
-  console.log('Procesando detalles con params:', { service_id, location_id });
-
-  if (!service_id || !location_id) {
-      throw new Error("Faltan parámetros requeridos service_id o location_id");
-  }
-
-  // Generar fechas disponibles
-  const dates = [];
-  const startDate = moment();
-  for (let i = 0; i < 30; i++) {
-      const currentDate = startDate.clone().add(i, 'days');
-      if (currentDate.day() !== 0 || currentDate.month() === 11) {
-          dates.push({
-              id: currentDate.format('YYYY-MM-DD'),
-              title: currentDate.format('DD/MM/YYYY')
-          });
-      }
-  }
-
-  // Obtener lista de personal disponible
-  const peluquerosDisponibles = await MongoDB.ListarPeluquerosDisponibles(
-      moment(),
-      location_id,
-      service_id,
-      "",
-      servicios.find(s => s.servicioID === service_id)?.duracion || 30
-  );
-
-  const staffList = await Promise.all(
-      peluquerosDisponibles.map(async id => ({
-          id: id,
-          title: await MongoDB.ObtenerNombrePeluqueroPorID(id)
-      }))
-  );
-
-  return {
-      available_dates: dates,
-      available_staff: staffList,
-      available_times: [] // Se llenará cuando se seleccione una fecha específica
-  };
-}
-
-async function processTimeSelection(params) {
-  const { date, service_id, location_id, staff_id } = params;
-  console.log('Procesando selección de hora con params:', { date, service_id, location_id, staff_id });
-
-  if (!date || !service_id || !location_id) {
-      throw new Error("Faltan parámetros requeridos para consultar horarios");
-  }
-
-  const fechaISO = moment(date).format();
-  const duracion = servicios.find(s => s.servicioID === service_id)?.duracion || 30;
-
-  const disponibilidad = await MongoDB.VerificarDisponibilidadPeluquero(
-      staff_id || null,
-      fechaISO,
-      location_id,
-      duracion
-  );
-
-  return {
-      available_times: (disponibilidad.horariosDisponibles || []).map(horario => ({
-          id: horario,
-          title: horario
-      }))
-  };
-}
-
-function handleFlowError(error, res, aesKeyBuffer, initialVectorBuffer) {
-  const errorResponse = {
-      success: false,
-      error: {
-          message: error.message || 'Error interno del servidor',
-          code: error.statusCode || 500
-      }
-  };
-
-  try {
-      console.log('Enviando respuesta de error:', JSON.stringify(errorResponse, null, 2));
-      const encryptedError = encryptResponse(errorResponse, aesKeyBuffer, initialVectorBuffer);
-      res.status(error.statusCode || 500).send(encryptedError);
-  } catch (encryptError) {
-      console.error('Error al encriptar respuesta de error:', encryptError);
-      res.status(500).json({ error: 'Error interno del servidor' });
-  }
-}
-
 // Endpoint para confirmar la cita usando tus funciones existentes
 app.post("/flow/confirm-appointment", async (req, res) => {
     try {
