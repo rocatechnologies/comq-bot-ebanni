@@ -1960,6 +1960,7 @@ class Conversation {
         rtn = await this.ProcesarInfoCentro(gpt.message);
         break;
         case GPTEnum.FLOWCITA:
+          console.log("flowcita");
           rtn = await this.ProcesarFlow(gpt.message);
           break;
       case GPTEnum.NONE:
