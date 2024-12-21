@@ -998,48 +998,43 @@ class FlowHandler {
       return {
         version: "3.0",
         screen: "WELCOME",
-        data: {},
-        runtime_data: {
-          navigation: {
-            next_screen: "SERVICE_AND_LOCATION"
-          }
-        }
+        data: {}
       };
     }
 
     try {
-      // Manejo de acciones específicas
       switch (screen_id) {
-        case "WELCOME":
-          if (action === "data_exchange") {
-            const services = this.getServiciosDisponibles();
-            const locations = this.getCentrosDisponibles();
+        case "WELCOME": {
+          if (action === "data_exchange" && data.start) {
+            // Obtener datos necesarios para SERVICE_AND_LOCATION
+            const services = await this.getServiciosDisponibles();
+            const locations = await this.getCentrosDisponibles();
 
+            // Retornar directamente la siguiente pantalla con sus datos
             return {
               version: "3.0",
               screen: "SERVICE_AND_LOCATION",
               data: {
                 services,
                 locations,
-                is_services_enabled: true,
+                is_service_enabled: true,
                 is_location_enabled: true
               }
             };
           }
           break;
+        }
 
-        case "SERVICE_AND_LOCATION":
+        case "SERVICE_AND_LOCATION": {
           if (action === "data_exchange") {
             const { service, location } = data;
-            
-            // Validar datos necesarios
             if (!service || !location) {
               throw new Error("Faltan datos de servicio o ubicación");
             }
 
             const availableDates = await this.getAvailableDates(location);
             const availableStaff = await this.getAvailableStaff(service, location);
-            const availableTimes = this.getInitialAvailableTimes();
+            const availableTimes = await this.getInitialAvailableTimes();
 
             return {
               version: "3.0",
@@ -1054,14 +1049,22 @@ class FlowHandler {
             };
           }
           break;
+        }
       }
 
-      // Si llegamos aquí, es una acción no soportada
-      throw new Error(`Acción no soportada: ${action} en pantalla ${screen_id}`);
+      // Si llegamos aquí, algo falló
+      console.log("No se pudo procesar la acción:", { screen_id, action, data });
+      return {
+        version: "3.0",
+        screen: "WELCOME",
+        data: {
+          error: true,
+          error_message: "No se pudo procesar la solicitud"
+        }
+      };
 
     } catch (error) {
       console.error("Error procesando request:", error);
-      // En caso de error, volvemos a WELCOME
       return {
         version: "3.0",
         screen: "WELCOME",
@@ -1073,7 +1076,7 @@ class FlowHandler {
     }
   }
 
-  getServiciosDisponibles() {
+  async getServiciosDisponibles() {
     return servicios.map(s => ({
       id: s.servicioID,
       title: s.servicio,
@@ -1081,7 +1084,7 @@ class FlowHandler {
     }));
   }
 
-  getCentrosDisponibles() {
+  async getCentrosDisponibles() {
     return salones
       .filter(s => ["Nervión Caballeros", "Nervión Señora", "Plaza del Duque", "Sevilla Este"]
         .includes(s.nombre))
@@ -1090,6 +1093,22 @@ class FlowHandler {
         title: s.nombre,
         description: s.address
       }));
+  }
+
+  async getAvailableDates(locationId) {
+    const dates = [];
+    const startDate = moment();
+    
+    for (let i = 0; i < 30; i++) {
+      const currentDate = startDate.clone().add(i, 'days');
+      if (currentDate.day() !== 0 || currentDate.month() === 11) {
+        dates.push({
+          id: currentDate.format('YYYY-MM-DD'),
+          title: currentDate.format('DD/MM/YYYY')
+        });
+      }
+    }
+    return dates;
   }
 
   getInitialAvailableTimes() {
@@ -1107,33 +1126,14 @@ class FlowHandler {
     return times;
   }
 
-  async getAvailableDates(locationId) {
-    const dates = [];
-    const startDate = moment();
-    
-    for (let i = 0; i < 30; i++) {
-      const currentDate = startDate.clone().add(i, 'days');
-      // No mostrar domingos excepto en diciembre
-      if (currentDate.day() !== 0 || currentDate.month() === 11) {
-        dates.push({
-          id: currentDate.format('YYYY-MM-DD'),
-          title: currentDate.format('DD/MM/YYYY')
-        });
-      }
-    }
-    return dates;
-  }
-
   async getAvailableStaff(serviceId, locationId) {
-    const availablePeluqueros = peluqueros.filter(p => 
-      p.salonID === locationId && 
-      p.services.some(s => s.toString() === serviceId)
-    );
-
-    return availablePeluqueros.map(p => ({
-      id: p.peluqueroID,
-      title: p.name
-    }));
+    return peluqueros
+      .filter(p => p.salonID === locationId &&
+                 p.services.some(s => s.toString() === serviceId))
+      .map(p => ({
+        id: p.peluqueroID,
+        title: p.name
+      }));
   }
 }
 
@@ -3075,7 +3075,7 @@ class Conversation {
             to: this.from,
             type: "template",
             template: {
-                name: "pedircita2",
+                name: "pedircita3",
                 language: {
                     code: "es"
                 },
