@@ -994,9 +994,9 @@ class FlowHandler {
         return { data: { status: "active" } };
       }
 
-      // Inicialización del flow
-      if (!screen_id || action === "INIT") {
-        console.log("Iniciando flow en WELCOME");
+      // Condición de primera inicialización
+      if (action === "INIT" || !screen_id) {
+        console.log("Inicialización inicial del flow");
         return {
           version: "3.0",
           screen: "WELCOME",
@@ -1004,48 +1004,66 @@ class FlowHandler {
         };
       }
 
-      // Manejo de pantallas
-      switch (screen_id) {
-        case "WELCOME": {
-          console.log("Procesando acción en WELCOME:", action);
-          if (action === "data_exchange") {
-            console.log("Preparando datos para SERVICE_AND_LOCATION");
-            // Obtener datos necesarios
-            const services = await this.getServiciosDisponibles();
-            const locations = await this.getCentrosDisponibles();
-            
-            console.log("Navegando a SERVICE_AND_LOCATION con datos:", {
-              servicesCount: services.length,
-              locationsCount: locations.length
-            });
+      console.log(`Procesando pantalla ${screen_id} con acción ${action}`);
 
-            return {
-              version: "3.0",
-              screen: "SERVICE_AND_LOCATION",
-              data: {
-                services,
-                locations,
-                is_services_enabled: true,
-                is_location_enabled: true
-              }
-            };
-          }
-          break;
-        }
+      // Manejar data_exchange desde WELCOME
+      if (screen_id === "WELCOME" && action === "data_exchange") {
+        console.log("Procesando data_exchange desde WELCOME");
+        
+        // Obtener datos para la siguiente pantalla
+        const services = this.getServiciosDisponibles();
+        const locations = this.getCentrosDisponibles();
 
-        case "SERVICE_AND_LOCATION": {
-          if (action === "data_exchange") {
-            const { service, location } = data;
-            return await this.handleServiceAndLocation(service, location);
+        console.log("Datos preparados:", {
+          serviciosCount: services.length,
+          locationsCount: locations.length
+        });
+
+        // Retornar la siguiente pantalla con sus datos
+        return {
+          version: "3.0",
+          screen: "SERVICE_AND_LOCATION",
+          data: {
+            services,
+            locations,
+            is_services_enabled: true,
+            is_location_enabled: true
           }
-          break;
-        }
+        };
       }
 
+      // Manejar data_exchange desde SERVICE_AND_LOCATION
+      if (screen_id === "SERVICE_AND_LOCATION" && action === "data_exchange") {
+        console.log("Procesando data_exchange desde SERVICE_AND_LOCATION");
+        const { service, location } = data;
+        
+        if (!service || !location) {
+          throw new Error("Faltan datos de servicio o ubicación");
+        }
+
+        const availableDates = await this.getAvailableDates(location);
+        const availableStaff = await this.getAvailableStaff(service, location);
+        const availableTimes = this.getInitialAvailableTimes();
+
+        return {
+          version: "3.0",
+          screen: "APPOINTMENT_DETAILS",
+          data: {
+            available_dates: availableDates,
+            available_staff: availableStaff,
+            available_times: availableTimes,
+            selected_service: service,
+            selected_location: location
+          }
+        };
+      }
+
+      // Si llegamos aquí es que no se manejó la acción
+      console.log("Acción no manejada:", { screen_id, action });
       throw new Error(`Acción no soportada: ${action} en pantalla ${screen_id}`);
 
     } catch (error) {
-      console.error("Error en processRequest:", error);
+      console.error("Error procesando request:", error);
       return {
         version: "3.0",
         screen: "WELCOME",
@@ -1058,7 +1076,6 @@ class FlowHandler {
   }
 
   getServiciosDisponibles() {
-    console.log("Obteniendo lista de servicios disponibles");
     return servicios.map(s => ({
       id: s.servicioID,
       title: s.servicio,
@@ -1067,7 +1084,6 @@ class FlowHandler {
   }
 
   getCentrosDisponibles() {
-    console.log("Obteniendo lista de centros disponibles");
     return salones
       .filter(s => ["Nervión Caballeros", "Nervión Señora", "Plaza del Duque", "Sevilla Este"]
         .includes(s.nombre))
@@ -1078,32 +1094,7 @@ class FlowHandler {
       }));
   }
 
-  async handleServiceAndLocation(service, location) {
-    console.log("Procesando selección de servicio y ubicación:", { service, location });
-    
-    if (!service || !location) {
-      throw new Error("Faltan datos de servicio o ubicación");
-    }
-
-    const availableDates = await this.getAvailableDates(location);
-    const availableStaff = await this.getAvailableStaff(service, location);
-    const availableTimes = await this.getInitialAvailableTimes();
-
-    return {
-      version: "3.0",
-      screen: "APPOINTMENT_DETAILS",
-      data: {
-        available_dates: availableDates,
-        available_staff: availableStaff,
-        available_times: availableTimes,
-        selected_service: service,
-        selected_location: location
-      }
-    };
-  }
-
   async getAvailableDates(locationId) {
-    console.log("Calculando fechas disponibles para la ubicación:", locationId);
     const dates = [];
     const startDate = moment();
     
@@ -1119,8 +1110,7 @@ class FlowHandler {
     return dates;
   }
 
-  async getInitialAvailableTimes() {
-    console.log("Generando horarios disponibles");
+  getInitialAvailableTimes() {
     const times = [];
     const startTime = moment().set({hour: 10, minute: 0});
     const endTime = moment().set({hour: 21, minute: 30});
@@ -1136,7 +1126,6 @@ class FlowHandler {
   }
 
   async getAvailableStaff(serviceId, locationId) {
-    console.log("Buscando personal disponible:", { serviceId, locationId });
     return peluqueros
       .filter(p => p.salonID === locationId && 
                    p.services.some(s => s.toString() === serviceId))
