@@ -994,6 +994,8 @@ class FlowHandler {
         return { data: { status: "active" } };
       }
 
+      console.log("action:", action);
+      console.log("screen_id:", screen_id);
       // Condición de primera inicialización
       if (action === "INIT" || !screen_id) {
         console.log("Inicialización inicial del flow");
