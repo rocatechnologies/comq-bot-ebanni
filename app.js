@@ -1126,24 +1126,97 @@ class FlowHandler {
       }));
   }
 
+  async getAvailableStaff(serviceId, locationId) {
+    console.log("Buscando staff disponible para:", {
+      serviceId,
+      locationId,
+      totalPeluqueros: peluqueros.length
+    });
+
+    // Verificar que los IDs son strings
+    const sId = serviceId.toString();
+    const lId = locationId.toString();
+
+    // Obtener servicio para verificación
+    const servicio = servicios.find(s => s.servicioID === sId);
+    if (!servicio) {
+      console.log("Servicio no encontrado:", sId);
+      return [];
+    }
+
+    // Obtener centro para verificación
+    const salon = salones.find(s => s.salonID === lId);
+    if (!salon) {
+      console.log("Salón no encontrado:", lId);
+      return [];
+    }
+
+    console.log("Servicio y salón encontrados:", {
+      servicio: servicio.servicio,
+      salon: salon.nombre
+    });
+
+    // Filtrar peluqueros que:
+    // 1. Trabajan en el centro
+    // 2. Pueden realizar el servicio
+    const staffDisponible = peluqueros.filter(p => {
+      const trabajaEnCentro = p.salonID === lId;
+      const puedeHacerServicio = p.services.some(s => 
+        s.toLowerCase().includes(servicio.servicio.toLowerCase())
+      );
+
+      console.log(`Evaluando peluquero ${p.name}:`, {
+        trabajaEnCentro,
+        puedeHacerServicio,
+        servicios: p.services
+      });
+
+      return trabajaEnCentro && puedeHacerServicio;
+    });
+
+    console.log("Staff disponible encontrado:", staffDisponible.length);
+
+    // Si no hay nadie disponible, devolver todos los del centro
+    if (staffDisponible.length === 0) {
+      console.log("No se encontró staff específico, devolviendo todos los del centro");
+      return peluqueros
+        .filter(p => p.salonID === lId)
+        .map(p => ({
+          id: p.peluqueroID,
+          title: p.name
+        }));
+    }
+
+    // Mapear al formato requerido
+    return staffDisponible.map(p => ({
+      id: p.peluqueroID,
+      title: p.name
+    }));
+  }
+
   async getAvailableDates(locationId) {
+    console.log("Obteniendo fechas disponibles para:", locationId);
     const dates = [];
-    const startDate = moment();
+    const startDate = moment().startOf('day');
     
     for (let i = 0; i < 30; i++) {
       const currentDate = startDate.clone().add(i, 'days');
-      // No mostrar domingos excepto en diciembre
-      if (currentDate.day() !== 0 || currentDate.month() === 11) {
+      // En diciembre, mostrar todos los días
+      // En otros meses, excluir domingos
+      if (currentDate.month() === 11 || currentDate.day() !== 0) {
         dates.push({
           id: currentDate.format('YYYY-MM-DD'),
           title: currentDate.format('DD/MM/YYYY')
         });
       }
     }
+
+    console.log(`Generadas ${dates.length} fechas disponibles`);
     return dates;
   }
 
-  async getAvailableTimes() {
+  getAvailableTimes() {
+    console.log("Generando horarios disponibles");
     const times = [];
     const startTime = moment().set({hour: 10, minute: 0});
     const endTime = moment().set({hour: 21, minute: 30});
@@ -1155,20 +1228,9 @@ class FlowHandler {
       });
       startTime.add(30, 'minutes');
     }
-    return times;
-  }
 
-  async getAvailableStaff(serviceId, locationId) {
-    // Filtra los peluqueros que pueden realizar el servicio en esa ubicación
-    return peluqueros
-      .filter(p => 
-        p.salonID === locationId && 
-        p.services.some(s => s.toString() === serviceId)
-      )
-      .map(p => ({
-        id: p.peluqueroID,
-        title: p.name
-      }));
+    console.log(`Generados ${times.length} horarios disponibles`);
+    return times;
   }
 }
 
