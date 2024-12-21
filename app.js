@@ -979,7 +979,6 @@ const ENDPOINT_TIMEOUT = 30000; // 30 segundos
  */
 class FlowHandler {
   constructor() {
-    this.currentScreen = null;
     this.currentData = {};
   }
 
@@ -987,15 +986,18 @@ class FlowHandler {
     console.log("\n=== PROCESANDO SOLICITUD DE FLOW ===");
     console.log("Datos recibidos:", decryptedBody);
 
-    const { action, screen_id, data = {} } = decryptedBody;
+    const { action, screen_id = "", data = {} } = decryptedBody;
 
-    // Health-check
+    // Health check
     if (action === "ping") {
       return { data: { status: "active" } };
     }
 
-    // Inicialización del flow
-    if (!screen_id || action === "INIT") {
+    // Manejo de errores en la navegación
+    if (data.error) {
+      console.log("Error detectado en navegación:", data.error);
+      console.log("Mensaje de error:", data.error_message);
+      // Reiniciar el flow desde WELCOME
       return {
         version: "3.0",
         screen: "WELCOME",
@@ -1003,69 +1005,76 @@ class FlowHandler {
       };
     }
 
-    // Manejo de la transición desde WELCOME
-    if (screen_id === "WELCOME" && action === "goto_service") {
-      const servicesData = await this.getServiciosDisponibles();
-      const locationsData = await this.getCentrosDisponibles();
-
+    // Inicialización o reinicio del flow
+    if (screen_id === "" || action === "INIT") {
       return {
         version: "3.0",
-        screen: "SERVICE_AND_LOCATION",
-        data: {
-          services: servicesData,
-          locations: locationsData,
-          is_services_enabled: true,
-          is_location_enabled: true
-        }
+        screen: "WELCOME",
+        data: {}
       };
     }
 
-    // Manejo de intercambio de datos
-    if (action === "data_exchange") {
-      return await this.handleDataExchange(screen_id, data);
-    }
-
-    throw new Error(`Acción no soportada: ${action}`);
-  }
-
-  async handleDataExchange(screen_id, data) {
-    switch(screen_id) {
+    // Manejo de acciones específicas por pantalla
+    switch (screen_id) {
+      case "WELCOME":
+        return await this.handleWelcomeAction(action, data);
       case "SERVICE_AND_LOCATION":
-        return await this.transitionToAppointmentDetails(data);
+        return await this.handleServiceAndLocationAction(action, data);
       case "APPOINTMENT_DETAILS":
-        return await this.transitionToCustomerDetails(data);
-      case "CUSTOMER_DETAILS":
-        return await this.transitionToSummary(data);
-      case "SUMMARY":
-        return await this.transitionToConfirmation(data);
+        return await this.handleAppointmentDetailsAction(action, data);
       default:
         throw new Error(`Pantalla no soportada: ${screen_id}`);
     }
   }
 
-  async transitionToAppointmentDetails(data) {
-    const { service_id, location_id } = data;
-    
-    // Obtener datos necesarios para la siguiente pantalla
-    const availableDates = await this.getAvailableDates(location_id);
-    const availableStaff = await this.getAvailableStaff(service_id, location_id);
-    const availableTimes = await this.getAvailableTimes(service_id, location_id);
+  async handleWelcomeAction(action, data) {
+    if (action === "goto_service") {
+      // Obtener datos necesarios
+      const services = this.getServiciosDisponibles();
+      const locations = this.getCentrosDisponibles();
 
-    return {
-      version: "3.0",
-      screen: "APPOINTMENT_DETAILS",
-      data: {
-        available_dates: availableDates,
-        available_staff: availableStaff,
-        available_times: availableTimes,
-        is_staff_enabled: true,
-        is_date_enabled: true,
-        is_time_enabled: true
-      }
-    };
+      return {
+        version: "3.0",
+        screen: "SERVICE_AND_LOCATION",
+        data: {
+          services,
+          locations,
+          is_services_enabled: true,
+          is_location_enabled: true
+        }
+      };
+    }
+    throw new Error(`Acción no soportada en WELCOME: ${action}`);
   }
 
-  async getServiciosDisponibles() {
+  async handleServiceAndLocationAction(action, data) {
+    if (action === "data_exchange") {
+      const { service, location } = data;
+      if (!service || !location) {
+        throw new Error("Faltan datos de servicio o ubicación");
+      }
+
+      // Obtener datos para la siguiente pantalla
+      const availableDates = await this.getAvailableDates(location);
+      const availableStaff = await this.getAvailableStaff(service, location);
+      const availableTimes = await this.getInitialAvailableTimes();
+
+      return {
+        version: "3.0",
+        screen: "APPOINTMENT_DETAILS",
+        data: {
+          available_dates: availableDates,
+          available_staff: availableStaff,
+          available_times: availableTimes,
+          selected_service: service,
+          selected_location: location
+        }
+      };
+    }
+    throw new Error(`Acción no soportada en SERVICE_AND_LOCATION: ${action}`);
+  }
+
+  getServiciosDisponibles() {
     return servicios.map(s => ({
       id: s.servicioID,
       title: s.servicio,
@@ -1073,21 +1082,23 @@ class FlowHandler {
     }));
   }
 
-  async getCentrosDisponibles() {
-    return salones.map(s => ({
-      id: s.salonID,
-      title: s.nombre,
-      description: s.address
-    }));
+  getCentrosDisponibles() {
+    return salones
+      .filter(s => ["Nervión Caballeros", "Nervión Señora", "Plaza del Duque", "Sevilla Este"]
+        .includes(s.nombre))
+      .map(s => ({
+        id: s.salonID,
+        title: s.nombre,
+        description: s.address
+      }));
   }
 
-  // Ejemplo: generar 30 días
-  async getAvailableDates() {
+  async getAvailableDates(locationId) {
     const dates = [];
     const startDate = moment();
+    
     for (let i = 0; i < 30; i++) {
       const currentDate = startDate.clone().add(i, 'days');
-      // Ejemplo: no mostrar domingos, excepto en diciembre
       if (currentDate.day() !== 0 || currentDate.month() === 11) {
         dates.push({
           id: currentDate.format('YYYY-MM-DD'),
@@ -1098,33 +1109,34 @@ class FlowHandler {
     return dates;
   }
 
-  // Ejemplo: obtener peluqueros disponibles según centro y servicio
-  async getAvailableStaff(service_id, location_id) {
-    // Aquí tendrías la lógica real para filtrar en tu DB
-    // Devuelves un array: [ { id, title }, ... ]
-    return [
-      { id: "abc123", title: "Peluquero 1" },
-      { id: "def456", title: "Peluquero 2" }
-    ];
+  async getAvailableStaff(serviceId, locationId) {
+    const availablePeluqueros = peluqueros.filter(p => 
+      p.salonID === locationId && 
+      p.services.some(s => s.toString() === serviceId)
+    );
+
+    return availablePeluqueros.map(p => ({
+      id: p.peluqueroID,
+      title: p.name
+    }));
   }
 
-  /**
-   * Para manejar errores y devolver algo consistente
-   */
-  handleError(error) {
-    console.error('Error en el flow:', error);
-    return {
-      success: false,
-      error: {
-        message: error.message || 'Error interno del servidor',
-        code: error.statusCode || 500
-      }
-    };
+  getInitialAvailableTimes() {
+    // Horarios de 10:00 a 21:30 en intervalos de 30 minutos
+    const times = [];
+    const startTime = moment().set({hour: 10, minute: 0});
+    const endTime = moment().set({hour: 21, minute: 30});
+
+    while (startTime.isSameOrBefore(endTime)) {
+      times.push({
+        id: startTime.format('HH:mm'),
+        title: startTime.format('HH:mm')
+      });
+      startTime.add(30, 'minutes');
+    }
+    return times;
   }
 }
-
-
-const flowHandler = new FlowHandler();
 
 app.post("/flow/data", async (req, res) => {
   console.log("\n=== INICIO PROCESAMIENTO FLOW DATA ===");
@@ -1133,28 +1145,43 @@ app.post("/flow/data", async (req, res) => {
   let aesKeyBuffer, initialVectorBuffer;
   
   try {
+    // 1. Descifrar la petición
     const decryptResult = decryptRequest(req.body);
     const { decryptedBody } = decryptResult;
     aesKeyBuffer = decryptResult.aesKeyBuffer;
     initialVectorBuffer = decryptResult.initialVectorBuffer;
 
+    console.log("Cuerpo descifrado:", JSON.stringify(decryptedBody, null, 2));
+
+    // 2. Procesar la solicitud usando el FlowHandler
     const flowHandler = new FlowHandler();
     const response = await flowHandler.processRequest(decryptedBody);
-    
+    console.log('Respuesta a enviar:', JSON.stringify(response, null, 2));
+
+    // 3. Encriptar y enviar respuesta
     const encryptedResponse = encryptResponse(response, aesKeyBuffer, initialVectorBuffer);
     res.send(encryptedResponse);
 
   } catch (error) {
-      console.error('Error en flow/data:', error);
-      const errorResponse = flowHandler.handleError(error);
-      
-      try {
-          const encryptedError = encryptResponse(errorResponse, aesKeyBuffer, initialVectorBuffer);
-          res.status(error.statusCode || 500).send(encryptedError);
-      } catch (encryptError) {
-          console.error('Error al encriptar respuesta de error:', encryptError);
-          res.status(500).json({ error: 'Error interno del servidor' });
+    console.error('Error en flow/data:', error);
+    
+    // Generar respuesta de error
+    const errorResponse = {
+      success: false,
+      error: {
+        message: error.message || 'Error interno del servidor',
+        code: error.statusCode || 500
       }
+    };
+    
+    try {
+      // Encriptar la respuesta de error
+      const encryptedError = encryptResponse(errorResponse, aesKeyBuffer, initialVectorBuffer);
+      res.status(error.statusCode || 500).send(encryptedError);
+    } catch (encryptError) {
+      console.error('Error al encriptar respuesta de error:', encryptError);
+      res.status(500).send(encryptResponse({ error: 'Error interno del servidor' }, aesKeyBuffer, initialVectorBuffer));
+    }
   }
 });
 
