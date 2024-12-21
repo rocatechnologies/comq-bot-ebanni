@@ -993,12 +993,10 @@ class FlowHandler {
     console.log("Valores extraídos:", { action, screen, data });
 
     try {
-      // Handle ping action
       if (action === "ping") {
         return { data: { status: "active" } };
       }
 
-      // Initial screen or INIT action
       if (action === "INIT" || screen === "") {
         return {
           version: "3.0",
@@ -1007,7 +1005,6 @@ class FlowHandler {
         };
       }
 
-      // Process each screen
       switch(screen) {
         case "WELCOME": {
           if (action === "data_exchange") {
@@ -1032,17 +1029,16 @@ class FlowHandler {
           if (action === "data_exchange") {
             console.log("Procesando data_exchange desde SERVICE_AND_LOCATION");
             const { service, location } = data;
-            const availableDates = await this.getAvailableDates(location);
             const availableStaff = await this.getAvailableStaff(service, location);
 
             return {
               version: "3.0",
               screen: "APPOINTMENT_DETAILS",
               data: {
-                available_dates: availableDates,
                 available_staff: availableStaff,
                 is_staff_enabled: true,
-                is_date_enabled: true,
+                is_date_enabled: false,
+                is_time_enabled: false,
                 selected_service: service,
                 selected_location: location
               }
@@ -1053,67 +1049,51 @@ class FlowHandler {
 
         case "APPOINTMENT_DETAILS": {
           if (action === "data_exchange") {
-            console.log("Procesando data_exchange desde APPOINTMENT_DETAILS", {
-              data,
-              action,
-              screen
-            });
+            console.log("Procesando data_exchange desde APPOINTMENT_DETAILS");
+            
+            // Caso 1: Solo staff seleccionado
+            if (data.staff && !data.date) {
+              const availableDates = await this.getAvailableDates(data.location);
+              return {
+                version: "3.0",
+                screen: "APPOINTMENT_DETAILS",
+                data: {
+                  ...data,
+                  available_dates: availableDates,
+                  is_date_enabled: true,
+                  is_time_enabled: false
+                }
+              };
+            }
 
-            if (data.staff && data.date) {
-              console.log("Obteniendo horarios disponibles para:", {
-                staff: data.staff,
-                date: data.date,
-                service: data.service,
-                location: data.location
-              });
-
-              const dateMoment = moment(data.date).tz("Europe/Madrid");
-              console.log("Fecha convertida:", dateMoment.format());
-
+            // Caso 2: Staff y fecha seleccionados
+            if (data.staff && data.date && !data.time) {
+              const dateMoment = moment(data.date, "YYYY-MM-DD").tz("Europe/Madrid");
               const horarios = await MongoDB.BuscarHorariosDisponiblesPeluquero(
                 data.staff,
                 dateMoment,
-                data.service,
+                30, // Duración por defecto, ajustar según el servicio
                 data.location
               );
-
-              console.log("Horarios devueltos por MongoDB:", horarios);
 
               const availableTimes = horarios.map(hora => ({
                 id: hora,
                 title: hora
               }));
 
-              console.log("Horarios formateados para el flow:", availableTimes);
-
-              if (availableTimes.length === 0) {
-                console.log("No se encontraron horarios disponibles");
-                return {
-                  version: "3.0",
-                  screen: "APPOINTMENT_DETAILS",
-                  data: {
-                    error: true,
-                    error_message: "No hay horarios disponibles para el día seleccionado"
-                  }
-                };
-              }
-
               return {
                 version: "3.0",
                 screen: "APPOINTMENT_DETAILS",
                 data: {
+                  ...data,
                   available_times: availableTimes,
-                  is_time_enabled: true,
-                  selected_staff: data.staff,
-                  selected_date: data.date,
-                  selected_service: data.service,
-                  selected_location: data.location
+                  is_time_enabled: true
                 }
               };
             }
 
-            if (data.time) {
-              console.log("Avanzando a CUSTOMER_DETAILS con datos completos");
+            // Caso 3: Todos los datos seleccionados
+            if (data.staff && data.date && data.time) {
               return {
                 version: "3.0",
                 screen: "CUSTOMER_DETAILS",
@@ -1126,17 +1106,6 @@ class FlowHandler {
                 }
               };
             }
-
-            console.log("Manteniendo APPOINTMENT_DETAILS con datos actuales");
-            return {
-              version: "3.0",
-              screen: "APPOINTMENT_DETAILS",
-              data: {
-                ...data,
-                is_staff_enabled: true,
-                is_date_enabled: true
-              }
-            };
           }
           break;
         }
@@ -1197,21 +1166,28 @@ class FlowHandler {
   }
 
   async getAvailableDates(locationId) {
+    console.log("Obteniendo fechas disponibles para location:", locationId);
     const dates = [];
-    const startDate = moment().startOf('day');
+    const startDate = moment().tz("Europe/Madrid").startOf('day');
     
     for (let i = 0; i < 30; i++) {
       const currentDate = startDate.clone().add(i, 'days');
-      if (currentDate.month() === 11 || currentDate.day() !== 0) {
+      const isDecember = currentDate.month() === 11;
+      const isSunday = currentDate.day() === 0;
+      
+      if (isDecember || !isSunday) {
         dates.push({
           id: currentDate.format('YYYY-MM-DD'),
           title: currentDate.format('DD/MM/YYYY')
         });
       }
     }
+    
+    console.log(`Se encontraron ${dates.length} fechas disponibles`);
     return dates;
   }
 }
+
 
 app.post("/flow/data", async (req, res) => {
   console.log("\n=== INICIO PROCESAMIENTO FLOW DATA ===");
