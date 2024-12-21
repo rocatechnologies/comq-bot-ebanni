@@ -1001,41 +1001,59 @@ class FlowHandler {
   }
 
   async processRequest(decryptedBody) {
-      console.log("\n=== PROCESANDO SOLICITUD DE FLOW ===");
-      console.log('Datos recibidos:', JSON.stringify(decryptedBody, null, 2));
+    console.log("\n=== PROCESANDO SOLICITUD DE FLOW ===");
+    console.log('Datos recibidos:', JSON.stringify(decryptedBody, null, 2));
 
-      const { screen_id, action, data = {} } = decryptedBody;
-      console.log(`Action: ${action}, Screen: ${screen_id}`);
+    const { screen_id, action, data = {} } = decryptedBody;
+    console.log(`Action: ${action}, Screen: ${screen_id}`);
 
-      try {
-          // Manejar health check
-          if (action === "ping") {
-              console.log("Health check detectado");
-              return {
-                  data: {
-                      status: "active"
-                  }
-              };
-          }
+    try {
+        // Manejar health check
+        if (action === "ping") {
+            console.log("Health check detectado");
+            return {
+                data: {
+                    status: "active"
+                }
+            };
+        }
 
-          // Manejar solicitud inicial o INIT
-          if (action === "INIT" || !screen_id) {
-              console.log("Solicitud inicial detectada");
-              return await this.getInitialScreen();
-          }
+        // Manejar solicitud inicial
+        if (action === "INIT" || !screen_id) {
+            console.log("Solicitud inicial detectada, cargando datos...");
+            const serviciosDisponibles = this.getServiciosDisponibles();
+            const centrosDisponibles = this.getCentrosDisponibles();
+            
+            console.log("Servicios disponibles:", serviciosDisponibles.length);
+            console.log("Centros disponibles:", centrosDisponibles.length);
 
-          // Manejar data_exchange
-          if (action === "data_exchange") {
-              return await this.handleDataExchange(screen_id, data);
-          }
+            const initialResponse = {
+                screen: "SERVICE_AND_LOCATION",
+                data: {
+                    services: serviciosDisponibles,
+                    locations: centrosDisponibles,
+                    is_services_enabled: true,
+                    is_location_enabled: true
+                }
+            };
 
-          throw new Error(`Acción no soportada: ${action}`);
+            console.log("Respuesta inicial preparada:", JSON.stringify(initialResponse, null, 2));
+            return initialResponse;
+        }
 
-      } catch (error) {
-          console.error("Error procesando solicitud:", error);
-          throw error;
-      }
-  }
+        // Manejar data_exchange
+        if (action === "data_exchange") {
+            console.log("Procesando intercambio de datos");
+            return await this.handleDataExchange(screen_id, data);
+        }
+
+        throw new Error(`Acción no soportada: ${action}`);
+
+    } catch (error) {
+        console.error("Error procesando solicitud:", error);
+        throw error;
+    }
+}
 
   async getInitialScreen() {
     console.log('Preparando pantalla inicial del flow...');
@@ -1068,35 +1086,27 @@ class FlowHandler {
 }
 
 getServiciosDisponibles() {
-    console.log('Obteniendo lista de servicios...');
-    console.log('Servicios disponibles en sistema:', servicios);
-    
-    return servicios
-        .filter(servicio => servicio.servicioID && servicio.servicio)
-        .map(servicio => ({
-            id: servicio.servicioID,
-            title: servicio.servicio,
-            metadata: {
-                duration: servicio.duracion,
-                specialities: servicio.specialities
-            }
-        }));
+  console.log("Obteniendo servicios disponibles...");
+  const serviciosFormateados = servicios
+      .filter(servicio => servicio.servicioID && servicio.servicio)
+      .map(servicio => ({
+          id: servicio.servicioID,
+          title: servicio.servicio
+      }));
+  console.log(`Total servicios formateados: ${serviciosFormateados.length}`);
+  return serviciosFormateados;
 }
 
 getCentrosDisponibles() {
-    console.log('Obteniendo lista de centros...');
-    console.log('Centros disponibles en sistema:', salones);
-    
-    return salones
-        .filter(salon => salon.salonID && salon.nombre)
-        .map(salon => ({
-            id: salon.salonID,
-            title: salon.nombre,
-            metadata: {
-                address: salon.address,
-                phone: salon.phoneNumber
-            }
-        }));
+  console.log("Obteniendo centros disponibles...");
+  const centrosFormateados = salones
+      .filter(salon => salon.salonID && salon.nombre)
+      .map(salon => ({
+          id: salon.salonID,
+          title: salon.nombre
+      }));
+  console.log(`Total centros formateados: ${centrosFormateados.length}`);
+  return centrosFormateados;
 }
 
   async handleDataExchange(screen_id, data) {
@@ -3123,6 +3133,8 @@ class Conversation {
     let rtn = new Message(WhoEnum.System);
     
     try {
+        console.log("Iniciando procesamiento de flow...");
+        
         // Datos para la plantilla del flow
         const data = {
             messaging_product: "whatsapp",
@@ -3130,7 +3142,7 @@ class Conversation {
             to: this.from,
             type: "template",
             template: {
-                name: "pedircita", // Nombre de tu plantilla
+                name: "pedircita",
                 language: {
                     code: "es"
                 },
@@ -3142,11 +3154,13 @@ class Conversation {
                         parameters: [
                             {
                                 type: "action",
-                                payload: "FLOW_START",
                                 action: {
                                     flow_action_data: {
-                                        flow_id: "2436991323137895", // ID de tu flow
-                                        navigate_screen: "SERVICE_AND_LOCATION" // Pantalla inicial
+                                        flow_id: "2436991323137895",
+                                        flow_action: "INIT", // Asegurarse de que se inicie correctamente
+                                        flow_params: {
+                                            screen: "SERVICE_AND_LOCATION"
+                                        }
                                     }
                                 }
                             }
@@ -3156,12 +3170,10 @@ class Conversation {
             }
         };
 
-        // Enviar la plantilla usando la función Send existente
+        console.log("Enviando plantilla de flow:", JSON.stringify(data, null, 2));
         await WhatsApp.Send(_phone_number_id, data);
         
         rtn.message = "Flow de cita iniciado correctamente.";
-        
-        // Incrementar el contador de interacciones
         await statisticsManager.incrementInteractions();
         
     } catch (error) {
@@ -3169,7 +3181,7 @@ class Conversation {
         rtn.message = "Hubo un error al iniciar el flow de cita.";
         await statisticsManager.incrementFailedOperations();
         await LogError(
-          this.from,
+            this.from,
             'Error al procesar flow de cita',
             error,
             this.salonID,
@@ -3179,7 +3191,7 @@ class Conversation {
 
     this.AddMsg(rtn);
     return "";
-  }
+}
 }
 
 class Message {
