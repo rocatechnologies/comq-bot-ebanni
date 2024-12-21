@@ -1050,6 +1050,7 @@ class FlowHandler {
         case "APPOINTMENT_DETAILS": {
           if (action === "data_exchange") {
             console.log("Procesando data_exchange desde APPOINTMENT_DETAILS");
+            console.log("data:", data); // <-- Agrega este log
             
             // Caso 1: Solo staff seleccionado
             if (data.staff && !data.date) {
@@ -1068,13 +1069,20 @@ class FlowHandler {
 
             // Caso 2: Staff y fecha seleccionados
             if (data.staff && data.date && !data.time) {
-              const dateMoment = moment(data.date, "YYYY-MM-DD").tz("Europe/Madrid");
+              // Asegúrate de parsear la fecha correctamente
+              const dateMoment = moment(data.date, ["YYYY-MM-DD", "DD/MM/YYYY"], true)
+                .tz("Europe/Madrid");
+
+              console.log("dateMoment valido?", dateMoment.isValid());
+
+              // Llama a tu función de BD
               const horarios = await MongoDB.BuscarHorariosDisponiblesPeluquero(
                 data.staff,
                 dateMoment,
-                30, // Duración por defecto, ajustar según el servicio
+                30, // Duración por defecto
                 data.location
               );
+              console.log("Horarios devueltos:", horarios);
 
               const availableTimes = horarios.map(hora => ({
                 id: hora,
@@ -1137,7 +1145,7 @@ class FlowHandler {
 
   getCentrosDisponibles() {
     return salones
-      .filter(s => ["Nervión Caballeros", "Nervión Señora", "Plaza del Duque", "Sevilla Este"]
+      .filter(s => ["Nervión Caballeros", "Nervión Señora", "Duque", "Sevilla Este"]
         .includes(s.nombre))
       .map(s => ({
         id: s.salonID,
@@ -1169,23 +1177,26 @@ class FlowHandler {
     console.log("Obteniendo fechas disponibles para location:", locationId);
     const dates = [];
     const startDate = moment().tz("Europe/Madrid").startOf('day');
-    
+  
     for (let i = 0; i < 30; i++) {
       const currentDate = startDate.clone().add(i, 'days');
       const isDecember = currentDate.month() === 11;
       const isSunday = currentDate.day() === 0;
-      
+  
       if (isDecember || !isSunday) {
         dates.push({
-          id: currentDate.format('YYYY-MM-DD'),
+          // Para la BD u operaciones internas
+          id: currentDate.format('MM/DD/YYYY'),
+          // Para el cliente
           title: currentDate.format('DD/MM/YYYY')
         });
       }
     }
-    
+  
     console.log(`Se encontraron ${dates.length} fechas disponibles`);
     return dates;
   }
+  
 }
 
 
