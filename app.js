@@ -3012,258 +3012,181 @@ class Conversation {
 
   async ProcesarConsultarHorario(gpt) {
     console.log("\n=== INICIO PROCESAR CONSULTAR HORARIO ===");
-    let partes = gpt.replace("CONSULTHOR", "").trim().split(/\s+/);
-    let fecha = partes[0];
-    let nombrePeluquero =
-      partes[1] === "MOREINFO" ? "" : partes.slice(1).join(" ");
+    
+    const partes = gpt.replace("CONSULTHOR", "").trim().split(/\s+/);
+    const fecha = partes[0];
+    const nombrePeluquero = partes[1] === "MOREINFO" ? "" : partes.slice(1).join(" ");
 
     console.log("Parámetros recibidos:", {
-      fecha,
-      nombrePeluquero: nombrePeluquero || "MOREINFO",
-      salonID: this.salonID,
+        fecha,
+        nombrePeluquero: nombrePeluquero || "MOREINFO",
+        salonID: this.salonID
     });
 
     let rtn = new Message(WhoEnum.System);
 
-    // Validación inicial
-    if (!moment(fecha, moment.ISO_8601, true).isValid() || !this.salonID) {
-      console.log("Validación fallida:", {
-        fechaValida: moment(fecha, moment.ISO_8601, true).isValid(),
-        salonPresente: Boolean(this.salonID),
-      });
-      rtn.message = !this.salonID
-        ? "Lo siento, falta conocer el salón."
-        : "La fecha proporcionada no es válida.";
-      this.AddMsg(rtn);
-      return "";
-    }
-
     try {
-      const fechaConsulta = moment(fecha);
-      const fechaFormateada = fechaConsulta.format("MM/DD/YYYY");
-      console.log("Fechas procesadas:", {
-        fechaConsulta: fechaConsulta.format(),
-        fechaFormateada,
-      });
+        // 1. Validaciones iniciales
+        if (!moment(fecha, moment.ISO_8601, true).isValid()) {
+            console.log("Error: Fecha inválida");
+            throw new Error("Fecha proporcionada no válida");
+        }
 
-      // Función auxiliar para obtener citas fuera de horario
-      const getCitasFueraHorario = async (peluqueroID) => {
-        console.log(
-          `\nBuscando citas fuera de horario para peluquero ${peluqueroID}`
-        );
-        const citas = await Appointments.find({
-          userInfo: new ObjectId(peluqueroID),
-          centerInfo: new ObjectId(this.salonID),
-          date: fechaFormateada,
-          clientName: "Fuera de horario",
-          status: "confirmed",
-        }).sort({ initTime: 1 });
+        if (!this.salonID) {
+            console.log("Error: Salón no especificado");
+            rtn.message = "Por favor, indica primero en qué salón quieres consultar la disponibilidad.";
+            this.AddMsg(rtn);
+            return "";
+        }
 
-        console.log("Citas fuera de horario encontradas:", {
-          cantidad: citas.length,
-          detalles: citas.map((c) => ({
-            initTime: c.initTime,
-            finalTime: c.finalTime,
-          })),
+        // 2. Preparar fecha y validar día de la semana
+        const fechaConsulta = moment(fecha).tz("Europe/Madrid");
+        const diaSemana = fechaConsulta.day();
+        const esHorarioCierre = fechaConsulta.format("HH:mm") === "22:00";
+
+        console.log("Fecha procesada:", {
+            fecha: fechaConsulta.format(),
+            diaSemana,
+            esHorarioCierre
         });
-        return citas;
-      };
 
-      // Función auxiliar para procesar los horarios de un peluquero
-      const procesarHorariosPeluquero = async (peluquero) => {
-        console.log(
-          `\nProcesando horarios para peluquero: ${
-            peluquero.name || peluquero.peluqueroID
-          }`
-        );
-        const citasFueraHorario = await getCitasFueraHorario(
-          peluquero.peluqueroID
-        );
-        let horariosDisponibles = [];
+        // 3. Manejar MOREINFO (consulta general)
+        if (nombrePeluquero.toUpperCase().includes("MOREINFO")) {
+            console.log("Procesando consulta general (MOREINFO)");
+            
+            const peluquerosDelSalon = peluqueros.filter(p => p.salonID === this.salonID);
+            console.log(`Encontrados ${peluquerosDelSalon.length} peluqueros en el salón`);
 
-        if (citasFueraHorario.length >= 2) {
-          console.log("Procesando 2+ citas fuera de horario");
-          horariosDisponibles.push({
-            fecha: fechaConsulta.format("DD/MM/YYYY"),
-            inicio: moment(citasFueraHorario[0].finalTime, "HH:mm:ss").format(
-              "HH:mm"
-            ),
-            fin: moment(citasFueraHorario[1].initTime, "HH:mm:ss").format(
-              "HH:mm"
-            ),
-          });
-        } else if (citasFueraHorario.length === 1) {
-          console.log("Procesando 1 cita fuera de horario");
-          const citaFH = citasFueraHorario[0];
-          const esInicio =
-            moment(citaFH.initTime, "HH:mm:ss").format("HH:mm") === "10:00";
+            // Obtener disponibilidad de todos los peluqueros
+            const horariosPromises = peluquerosDelSalon.map(async peluquero => {
+                try {
+                    const citasFueraHorario = await Appointments.find({
+                        date: fechaConsulta.format("MM/DD/YYYY"),
+                        userInfo: mongoose.Types.ObjectId(peluquero.peluqueroID),
+                        centerInfo: mongoose.Types.ObjectId(this.salonID),
+                        clientName: "Fuera de horario",
+                        status: "confirmed"
+                    }).lean();
 
-          horariosDisponibles.push({
-            fecha: fechaConsulta.format("DD/MM/YYYY"),
-            inicio: esInicio
-              ? moment(citaFH.finalTime, "HH:mm:ss").format("HH:mm")
-              : "10:00",
-            fin: esInicio
-              ? "22:00"
-              : moment(citaFH.initTime, "HH:mm:ss").format("HH:mm"),
-          });
-        }
+                    if (citasFueraHorario.length === 0) {
+                        return {
+                            nombre: peluquero.name,
+                            horario: "10:00 a 22:00"
+                        };
+                    }
 
-        console.log("Horarios disponibles encontrados:", horariosDisponibles);
-        return horariosDisponibles;
-      };
+                    // Procesar horarios disponibles según citas fuera de horario
+                    const horarios = citasFueraHorario.reduce((acc, cita) => {
+                        const inicio = cita.initTime === "10:00" ? 
+                            moment(cita.finalTime, "HH:mm").format("HH:mm") : "10:00";
+                        const fin = cita.finalTime === "22:00" ? 
+                            moment(cita.initTime, "HH:mm").format("HH:mm") : "22:00";
+                        return `${inicio} a ${fin}`;
+                    }, "");
 
-      if (nombrePeluquero.toUpperCase().includes("MOREINFO")) {
-        console.log("\n=== PROCESANDO MOREINFO ===");
-        const peluquerosDelSalon = peluqueros.filter(
-          (p) => p.salonID === this.salonID
-        );
-        console.log(
-          "Peluqueros encontrados en el salón:",
-          peluquerosDelSalon.length
-        );
-
-        let peluquerosHorarios = [];
-        for (let peluquero of peluquerosDelSalon) {
-          console.log("\nProcesando peluquero:", peluquero.name);
-          const horarios = await procesarHorariosPeluquero(peluquero);
-          if (horarios.length > 0) {
-            peluquerosHorarios.push({
-              nombre: peluquero.name,
-              horarios: horarios,
+                    return {
+                        nombre: peluquero.name,
+                        horario
+                    };
+                } catch (error) {
+                    console.error(`Error consultando horarios de ${peluquero.name}:`, error);
+                    return null;
+                }
             });
-          }
-        }
 
-        console.log(
-          "\nResumen final peluqueros con horarios:",
-          peluquerosHorarios
-        );
+            const resultados = (await Promise.all(horariosPromises))
+                .filter(resultado => resultado !== null);
 
-        if (peluquerosHorarios.length > 0) {
-          const horariosList = peluquerosHorarios
-            .map(
-              (p) =>
-                `*${p.nombre}*: ${p.horarios
-                  .map((h) => `de ${h.inicio} a ${h.fin}`)
-                  .join(", ")}`
-            )
-            .join("\n");
-
-          rtn.message = `Horarios de los peluqueros para el ${fechaConsulta.format(
-            "DD/MM/YYYY"
-          )}:\n\n${horariosList}\n\n¿Te gustaría agendar una cita con alguno de ellos?`;
-        } else {
-          rtn.message = `Lo siento, no hay peluqueros registrados para trabajar el ${fechaConsulta.format(
-            "DD/MM/YYYY"
-          )}.`;
-        }
-      } else {
-        console.log("\n=== PROCESANDO PELUQUERO ESPECÍFICO ===");
-        const peluqueroID = await ChatGPT.CalculaPeluquero(
-          nombrePeluquero,
-          this.salonID
-        );
-        console.log("ID del peluquero encontrado:", peluqueroID);
-
-        if (!peluqueroID) {
-          rtn.message = `No se encontró al peluquero "${nombrePeluquero}".`;
-          this.AddMsg(rtn);
-          return "";
-        }
-
-        let horarioEncontrado = false;
-        let horariosDisponibles = [];
-
-        for (let i = 0; i <= 7; i++) {
-          console.log(
-            `\nBuscando día ${i}: ${fechaConsulta.format("DD/MM/YYYY")}`
-          );
-          const fechaFormateada = fechaConsulta.format("MM/DD/YYYY");
-
-          let citasFueraHorario = await Appointments.find({
-            userInfo: new ObjectId(peluqueroID),
-            centerInfo: new ObjectId(this.salonID),
-            date: fechaFormateada,
-            clientName: "Fuera de horario",
-            status: "confirmed",
-          }).sort({ initTime: 1 });
-
-          console.log("Citas fuera de horario encontradas:", {
-            cantidad: citasFueraHorario.length,
-            detalles: JSON.stringify(citasFueraHorario, null, 2),
-          });
-
-          if (citasFueraHorario.length >= 2) {
-            console.log("Procesando 2+ citas fuera de horario");
-            horariosDisponibles.push({
-              fecha: fechaConsulta.format("DD/MM/YYYY"),
-              inicio: moment(citasFueraHorario[0].finalTime, "HH:mm:ss").format(
-                "HH:mm"
-              ),
-              fin: moment(citasFueraHorario[1].initTime, "HH:mm:ss").format(
-                "HH:mm"
-              ),
-            });
-            horarioEncontrado = true;
-          } else if (citasFueraHorario.length === 1) {
-            console.log("Procesando 1 cita fuera de horario");
-            const citaFH = citasFueraHorario[0];
-            if (
-              moment(citaFH.initTime, "HH:mm:ss").format("HH:mm") === "10:00"
-            ) {
-              horariosDisponibles.push({
-                fecha: fechaConsulta.format("DD/MM/YYYY"),
-                inicio: moment(citaFH.finalTime, "HH:mm:ss").format("HH:mm"),
-                fin: "22:00",
-              });
+            if (resultados.length > 0) {
+                const horariosList = resultados
+                    .map(r => `*${r.nombre}*: de ${r.horario}`)
+                    .join("\n");
+                
+                rtn.message = `Horarios de los peluqueros para el ${fechaConsulta.format("DD/MM/YYYY")}:\n\n${horariosList}\n\n¿Te gustaría agendar una cita con alguno de ellos?`;
             } else {
-              horariosDisponibles.push({
-                fecha: fechaConsulta.format("DD/MM/YYYY"),
-                inicio: "10:00",
-                fin: moment(citaFH.initTime, "HH:mm:ss").format("HH:mm"),
-              });
+                rtn.message = `Lo siento, no hay peluqueros registrados para trabajar el ${fechaConsulta.format("DD/MM/YYYY")}.`;
             }
-            horarioEncontrado = true;
-          }
+        }
+        // 4. Manejar consulta de peluquero específico
+        else {
+            console.log("Procesando consulta para peluquero específico:", nombrePeluquero);
+            
+            const peluqueroID = await ChatGPT.CalculaPeluquero(nombrePeluquero, this.salonID);
+            if (!peluqueroID) {
+                rtn.message = `No se encontró al peluquero "${nombrePeluquero}" en este salón.`;
+                this.AddMsg(rtn);
+                return "";
+            }
 
-          if (horarioEncontrado && i === 0) {
-            console.log("Horario encontrado para el día solicitado");
-            let horario = horariosDisponibles[0];
-            rtn.message = `${nombrePeluquero} trabaja de ${horario.inicio} a ${horario.fin} el ${horario.fecha}. ¿Te gustaría agendar una cita?`;
-            break;
-          } else if (i === 7 && horariosDisponibles.length > 0) {
-            console.log("Horarios encontrados para próximos días");
-            let horariosMsg = horariosDisponibles
-              .map((h) => `*${h.fecha}*: de ${h.inicio} a ${h.fin}`)
-              .join("\n");
-            rtn.message = `${nombrePeluquero} no está disponible el ${fechaConsulta.format(
-              "DD/MM/YYYY"
-            )}. Sin embargo, tiene los siguientes horarios:\n\n${horariosMsg}\n\n¿Te gustaría agendar alguno de estos días?`;
-          }
+            // Buscar horarios disponibles para los próximos 7 días
+            let horariosEncontrados = false;
+            let horariosDisponibles = [];
+            const fechaActual = fechaConsulta.clone();
 
-          if (!horarioEncontrado) {
-            fechaConsulta.add(1, "days");
-          }
+            for (let i = 0; i <= 7; i++) {
+                console.log(`Buscando horarios para el día ${fechaActual.format("DD/MM/YYYY")}`);
+
+                const citasFueraHorario = await Appointments.find({
+                    date: fechaActual.format("MM/DD/YYYY"),
+                    userInfo: mongoose.Types.ObjectId(peluqueroID),
+                    centerInfo: mongoose.Types.ObjectId(this.salonID),
+                    clientName: "Fuera de horario",
+                    status: "confirmed"
+                }).lean();
+
+                if (citasFueraHorario.length === 0 && i === 0) {
+                    rtn.message = `${nombrePeluquero} trabaja de 10:00 a 22:00 el ${fechaActual.format("DD/MM/YYYY")}. ¿Te gustaría agendar una cita?`;
+                    horariosEncontrados = true;
+                    break;
+                } else if (citasFueraHorario.length > 0) {
+                    const horariosDia = citasFueraHorario.reduce((acc, cita) => {
+                        const horario = {
+                            fecha: fechaActual.format("DD/MM/YYYY"),
+                            inicio: cita.initTime === "10:00" ? 
+                                moment(cita.finalTime, "HH:mm").format("HH:mm") : "10:00",
+                            fin: cita.finalTime === "22:00" ? 
+                                moment(cita.initTime, "HH:mm").format("HH:mm") : "22:00"
+                        };
+                        acc.push(horario);
+                        return acc;
+                    }, []);
+
+                    horariosDisponibles.push(...horariosDia);
+                }
+
+                fechaActual.add(1, 'days');
+            }
+
+            if (!horariosEncontrados && horariosDisponibles.length > 0) {
+                const horariosMsg = horariosDisponibles
+                    .map(h => `*${h.fecha}*: de ${h.inicio} a ${h.fin}`)
+                    .join("\n");
+
+                rtn.message = `${nombrePeluquero} tiene los siguientes horarios disponibles:\n\n${horariosMsg}\n\n¿Te gustaría agendar una cita en alguno de estos horarios?`;
+            } else if (!horariosEncontrados) {
+                rtn.message = `${nombrePeluquero} no tiene horarios registrados en los próximos 7 días.`;
+            }
         }
 
-        if (!horarioEncontrado) {
-          console.log("No se encontraron horarios en los próximos 7 días");
-          rtn.message = `${nombrePeluquero} no tiene horarios registrados en los próximos 7 días.`;
-        }
-      }
-    } catch (ex) {
-      console.error("Error en ProcesarConsultarHorario:", ex);
-      DoLog(`Error en ProcesarConsultarHorario: ${ex}`, Log.Error);
-      rtn.message = `Hubo un error al consultar los horarios.`;
+        console.log("Mensaje final:", rtn.message);
+
+    } catch (error) {
+        console.error("Error en ProcesarConsultarHorario:", error);
+        rtn.message = "Lo siento, ha ocurrido un error al consultar los horarios. ¿Podrías intentarlo de nuevo?";
+        await LogError(
+            this.from,
+            "Error al procesar consulta de horario",
+            error,
+            this.salonID,
+            this.salonNombre
+        );
     }
 
-    console.log("\nMensaje final:", rtn.message);
     console.log("=== FIN PROCESAR CONSULTAR HORARIO ===\n");
-
+    
     this.AddMsg(rtn);
     return "";
-  }
+}
   
   async ProcesarFlow(gpt) {
     let rtn = new Message(WhoEnum.System);
