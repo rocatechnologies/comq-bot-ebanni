@@ -3133,16 +3133,18 @@ class Conversation {
                     {
                         type: "button",
                         sub_type: "flow",
-                        index: "0",
+                        index: 0,
                         parameters: [
                             {
-                              type: "flow",
-                              flow: {
-                                  id: "2436991323137895",
-                                  data: {
-                                      screen: "SERVICE_AND_LOCATION"
-                                  }
-                              }
+                                type: "action",
+                                action: {
+                                    flow_action_data: {
+                                        flow_id: "2436991323137895",
+                                        navigation: {
+                                            screen: "SERVICE_AND_LOCATION"
+                                        }
+                                    }
+                                }
                             }
                         ]
                     }
@@ -3158,7 +3160,7 @@ class Conversation {
         
     } catch (error) {
         console.error('Error al procesar el flow:', error);
-        rtn.message = "Hubo un error al iniciar el flow de cita.";
+        rtn.message = "Lo siento, en este momento no puedo iniciar el flow de cita. ¿Prefieres que agendemos tu cita directamente aquí?";
         await statisticsManager.incrementFailedOperations();
         await LogError(
             this.from,
@@ -3171,7 +3173,7 @@ class Conversation {
 
     this.AddMsg(rtn);
     return "";
-  }
+}
 }
 
 class Message {
