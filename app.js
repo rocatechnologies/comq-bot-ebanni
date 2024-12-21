@@ -3113,13 +3113,12 @@ class Conversation {
                         index: 0,
                         parameters: [
                             {
-                                type: "action",
+                              type: "action",
+                                payload: "INIT",
                                 action: {
                                     flow_action_data: {
-                                        flow_id: "2436991323137895",
-                                        navigation: {
-                                            screen: "WELCOME"
-                                        }
+                                        flow_id: "2436991323137895", // ID de tu flow
+                                        navigate_screen: "WELCOME" // Pantalla inicial
                                     }
                                 }
                             }
