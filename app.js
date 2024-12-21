@@ -1048,54 +1048,100 @@ class FlowHandler {
           break;
         }
 
-        case "APPOINTMENT_DETAILS": {
+        ccase "APPOINTMENT_DETAILS": {
           if (action === "data_exchange") {
-            console.log("Procesando data_exchange desde APPOINTMENT_DETAILS", data);
-            const { staff, date } = data;
+            console.log("Procesando data_exchange desde APPOINTMENT_DETAILS", {
+              data,
+              action,
+              screen
+            });
 
             // Si tenemos staff y fecha, obtener horarios específicos
-            if (staff && date) {
-              const dateMoment = moment(date);
+            if (data.staff && data.date) {
+              console.log("Obteniendo horarios disponibles para:", {
+                staff: data.staff,
+                date: data.date,
+                service: data.service,
+                location: data.location
+              });
+
+              // Convertir la fecha al formato correcto
+              const dateMoment = moment(data.date).tz("Europe/Madrid");
+              console.log("Fecha convertida:", dateMoment.format());
+
+              // Buscar horarios disponibles
               const horarios = await MongoDB.BuscarHorariosDisponiblesPeluquero(
-                staff,
+                data.staff,
                 dateMoment,
                 data.service,
                 data.location
               );
 
+              console.log("Horarios devueltos por MongoDB:", horarios);
+
+              // Convertir al formato que espera el flow
               const availableTimes = horarios.map(hora => ({
                 id: hora,
                 title: hora
               }));
 
-              console.log(`Horarios disponibles encontrados: ${availableTimes.length}`);
+              console.log("Horarios formateados para el flow:", availableTimes);
 
+              // Si no hay horarios, devolver mensaje de error
+              if (availableTimes.length === 0) {
+                console.log("No se encontraron horarios disponibles");
+                return {
+                  version: "3.0",
+                  screen: "APPOINTMENT_DETAILS",
+                  data: {
+                    error: true,
+                    error_message: "No hay horarios disponibles para el día seleccionado"
+                  }
+                };
+              }
+
+              // Devolver la respuesta con los horarios
               return {
                 version: "3.0",
                 screen: "APPOINTMENT_DETAILS",
                 data: {
                   available_times: availableTimes,
                   is_time_enabled: true,
-                  selected_staff: staff,
-                  selected_date: date
+                  selected_staff: data.staff,
+                  selected_date: data.date,
+                  selected_service: data.service,
+                  selected_location: data.location
                 }
               };
-            }
+            } 
             
-            // Si llegamos aquí con todos los datos, avanzar a CUSTOMER_DETAILS
+            // Si llegamos aquí con time seleccionado, avanzar a CUSTOMER_DETAILS
             if (data.time) {
+              console.log("Avanzando a CUSTOMER_DETAILS con datos completos");
               return {
                 version: "3.0",
                 screen: "CUSTOMER_DETAILS",
                 data: {
-                  selected_staff: staff,
-                  selected_date: date,
+                  selected_staff: data.staff,
+                  selected_date: data.date,
                   selected_time: data.time,
                   selected_service: data.service,
                   selected_location: data.location
                 }
               };
             }
+
+            // Si no tenemos todos los datos necesarios, mantener la pantalla actual
+            console.log("Manteniendo APPOINTMENT_DETAILS con datos actuales");
+            return {
+              version: "3.0",
+              screen: "APPOINTMENT_DETAILS",
+              data: {
+                ...data,
+                is_staff_enabled: true,
+                is_date_enabled: true
+              }
+            };
           }
           break;
         }
