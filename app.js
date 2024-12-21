@@ -988,36 +988,44 @@ class FlowHandler {
 
     const { action, screen_id, data = {} } = decryptedBody;
 
-    // Health check
-    if (action === "ping") {
-      return { data: { status: "active" } };
-    }
-
-    // Inicio o reinicio del flow
-    if (!screen_id || action === "INIT") {
-      return {
-        version: "3.0",
-        screen: "WELCOME",
-        data: {}
-      };
-    }
-
     try {
+      // Health check
+      if (action === "ping") {
+        return { data: { status: "active" } };
+      }
+
+      // Inicialización del flow
+      if (!screen_id || action === "INIT") {
+        console.log("Iniciando flow en WELCOME");
+        return {
+          version: "3.0",
+          screen: "WELCOME",
+          data: {}
+        };
+      }
+
+      // Manejo de pantallas
       switch (screen_id) {
         case "WELCOME": {
-          if (action === "data_exchange" && data.start) {
-            // Obtener datos necesarios para SERVICE_AND_LOCATION
+          console.log("Procesando acción en WELCOME:", action);
+          if (action === "data_exchange") {
+            console.log("Preparando datos para SERVICE_AND_LOCATION");
+            // Obtener datos necesarios
             const services = await this.getServiciosDisponibles();
             const locations = await this.getCentrosDisponibles();
+            
+            console.log("Navegando a SERVICE_AND_LOCATION con datos:", {
+              servicesCount: services.length,
+              locationsCount: locations.length
+            });
 
-            // Retornar directamente la siguiente pantalla con sus datos
             return {
               version: "3.0",
               screen: "SERVICE_AND_LOCATION",
               data: {
                 services,
                 locations,
-                is_service_enabled: true,
+                is_services_enabled: true,
                 is_location_enabled: true
               }
             };
@@ -1028,43 +1036,16 @@ class FlowHandler {
         case "SERVICE_AND_LOCATION": {
           if (action === "data_exchange") {
             const { service, location } = data;
-            if (!service || !location) {
-              throw new Error("Faltan datos de servicio o ubicación");
-            }
-
-            const availableDates = await this.getAvailableDates(location);
-            const availableStaff = await this.getAvailableStaff(service, location);
-            const availableTimes = await this.getInitialAvailableTimes();
-
-            return {
-              version: "3.0",
-              screen: "APPOINTMENT_DETAILS",
-              data: {
-                available_dates: availableDates,
-                available_staff: availableStaff,
-                available_times: availableTimes,
-                selected_service: service,
-                selected_location: location
-              }
-            };
+            return await this.handleServiceAndLocation(service, location);
           }
           break;
         }
       }
 
-      // Si llegamos aquí, algo falló
-      console.log("No se pudo procesar la acción:", { screen_id, action, data });
-      return {
-        version: "3.0",
-        screen: "WELCOME",
-        data: {
-          error: true,
-          error_message: "No se pudo procesar la solicitud"
-        }
-      };
+      throw new Error(`Acción no soportada: ${action} en pantalla ${screen_id}`);
 
     } catch (error) {
-      console.error("Error procesando request:", error);
+      console.error("Error en processRequest:", error);
       return {
         version: "3.0",
         screen: "WELCOME",
@@ -1076,7 +1057,8 @@ class FlowHandler {
     }
   }
 
-  async getServiciosDisponibles() {
+  getServiciosDisponibles() {
+    console.log("Obteniendo lista de servicios disponibles");
     return servicios.map(s => ({
       id: s.servicioID,
       title: s.servicio,
@@ -1084,7 +1066,8 @@ class FlowHandler {
     }));
   }
 
-  async getCentrosDisponibles() {
+  getCentrosDisponibles() {
+    console.log("Obteniendo lista de centros disponibles");
     return salones
       .filter(s => ["Nervión Caballeros", "Nervión Señora", "Plaza del Duque", "Sevilla Este"]
         .includes(s.nombre))
@@ -1095,7 +1078,32 @@ class FlowHandler {
       }));
   }
 
+  async handleServiceAndLocation(service, location) {
+    console.log("Procesando selección de servicio y ubicación:", { service, location });
+    
+    if (!service || !location) {
+      throw new Error("Faltan datos de servicio o ubicación");
+    }
+
+    const availableDates = await this.getAvailableDates(location);
+    const availableStaff = await this.getAvailableStaff(service, location);
+    const availableTimes = await this.getInitialAvailableTimes();
+
+    return {
+      version: "3.0",
+      screen: "APPOINTMENT_DETAILS",
+      data: {
+        available_dates: availableDates,
+        available_staff: availableStaff,
+        available_times: availableTimes,
+        selected_service: service,
+        selected_location: location
+      }
+    };
+  }
+
   async getAvailableDates(locationId) {
+    console.log("Calculando fechas disponibles para la ubicación:", locationId);
     const dates = [];
     const startDate = moment();
     
@@ -1111,7 +1119,8 @@ class FlowHandler {
     return dates;
   }
 
-  getInitialAvailableTimes() {
+  async getInitialAvailableTimes() {
+    console.log("Generando horarios disponibles");
     const times = [];
     const startTime = moment().set({hour: 10, minute: 0});
     const endTime = moment().set({hour: 21, minute: 30});
@@ -1127,9 +1136,10 @@ class FlowHandler {
   }
 
   async getAvailableStaff(serviceId, locationId) {
+    console.log("Buscando personal disponible:", { serviceId, locationId });
     return peluqueros
-      .filter(p => p.salonID === locationId &&
-                 p.services.some(s => s.toString() === serviceId))
+      .filter(p => p.salonID === locationId && 
+                   p.services.some(s => s.toString() === serviceId))
       .map(p => ({
         id: p.peluqueroID,
         title: p.name
