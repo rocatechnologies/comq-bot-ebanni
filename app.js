@@ -991,11 +991,7 @@ class FlowHandler {
     const screen = decryptedBody.screen || '';
     const data = decryptedBody.data || {};
 
-    console.log("Valores extraídos:", {
-      action,
-      screen,
-      data
-    });
+    console.log("Valores extraídos:", { action, screen, data });
 
     try {
       // Health check
@@ -1013,29 +1009,88 @@ class FlowHandler {
         };
       }
 
-      // Manejar data_exchange desde WELCOME
-      if (screen === "WELCOME" && action === "data_exchange") {
-        console.log("Procesando data_exchange desde WELCOME");
-        
-        // Obtener datos para la siguiente pantalla
-        const services = this.getServiciosDisponibles();
-        const locations = this.getCentrosDisponibles();
-
-        console.log("Navegando a SERVICE_AND_LOCATION con datos preparados");
-
-        return {
-          version: "3.0",
-          screen: "SERVICE_AND_LOCATION",
-          data: {
-            services,
-            locations,
-            is_services_enabled: true,
-            is_location_enabled: true
+      // Manejar las diferentes pantallas y acciones
+      switch(screen) {
+        case "WELCOME": {
+          if (action === "data_exchange") {
+            console.log("Procesando data_exchange desde WELCOME");
+            const services = this.getServiciosDisponibles();
+            const locations = this.getCentrosDisponibles();
+            return {
+              version: "3.0",
+              screen: "SERVICE_AND_LOCATION",
+              data: {
+                services,
+                locations,
+                is_services_enabled: true,
+                is_location_enabled: true
+              }
+            };
           }
-        };
+          break;
+        }
+
+        case "SERVICE_AND_LOCATION": {
+          if (action === "data_exchange") {
+            console.log("Procesando data_exchange desde SERVICE_AND_LOCATION");
+            const { service, location } = data;
+            
+            if (!service || !location) {
+              throw new Error("Faltan datos de servicio o ubicación");
+            }
+
+            console.log("Obteniendo datos para APPOINTMENT_DETAILS");
+            const availableDates = await this.getAvailableDates(location);
+            const availableStaff = await this.getAvailableStaff(service, location);
+            const availableTimes = await this.getAvailableTimes();
+
+            console.log("Datos preparados para APPOINTMENT_DETAILS:", {
+              datesCount: availableDates.length,
+              staffCount: availableStaff.length,
+              timesCount: availableTimes.length
+            });
+
+            return {
+              version: "3.0",
+              screen: "APPOINTMENT_DETAILS",
+              data: {
+                available_dates: availableDates,
+                available_staff: availableStaff,
+                available_times: availableTimes,
+                selected_service: service,
+                selected_location: location,
+                is_staff_enabled: true,
+                is_date_enabled: true,
+                is_time_enabled: true
+              }
+            };
+          }
+          break;
+        }
+
+        case "APPOINTMENT_DETAILS": {
+          if (action === "data_exchange") {
+            console.log("Procesando data_exchange desde APPOINTMENT_DETAILS");
+            const { staff, date, time } = data;
+            
+            if (!staff || !date || !time) {
+              throw new Error("Faltan datos de cita");
+            }
+
+            return {
+              version: "3.0",
+              screen: "CUSTOMER_DETAILS",
+              data: {
+                selected_staff: staff,
+                selected_date: date,
+                selected_time: time
+              }
+            };
+          }
+          break;
+        }
       }
 
-      // Si llegamos aquí es que no se manejó la acción
       console.log("Acción no manejada:", { screen, action });
       throw new Error(`Acción no soportada: ${action} en pantalla ${screen}`);
 
@@ -1068,6 +1123,51 @@ class FlowHandler {
         id: s.salonID,
         title: s.nombre,
         description: s.address
+      }));
+  }
+
+  async getAvailableDates(locationId) {
+    const dates = [];
+    const startDate = moment();
+    
+    for (let i = 0; i < 30; i++) {
+      const currentDate = startDate.clone().add(i, 'days');
+      // No mostrar domingos excepto en diciembre
+      if (currentDate.day() !== 0 || currentDate.month() === 11) {
+        dates.push({
+          id: currentDate.format('YYYY-MM-DD'),
+          title: currentDate.format('DD/MM/YYYY')
+        });
+      }
+    }
+    return dates;
+  }
+
+  async getAvailableTimes() {
+    const times = [];
+    const startTime = moment().set({hour: 10, minute: 0});
+    const endTime = moment().set({hour: 21, minute: 30});
+
+    while (startTime.isSameOrBefore(endTime)) {
+      times.push({
+        id: startTime.format('HH:mm'),
+        title: startTime.format('HH:mm')
+      });
+      startTime.add(30, 'minutes');
+    }
+    return times;
+  }
+
+  async getAvailableStaff(serviceId, locationId) {
+    // Filtra los peluqueros que pueden realizar el servicio en esa ubicación
+    return peluqueros
+      .filter(p => 
+        p.salonID === locationId && 
+        p.services.some(s => s.toString() === serviceId)
+      )
+      .map(p => ({
+        id: p.peluqueroID,
+        title: p.name
       }));
   }
 }
