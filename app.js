@@ -825,7 +825,27 @@ app.post("/flow/data", async (req, res) => {
     const { screen_id, params } = req.body;
     
     try {
-        let response = {};
+        // Descifrar la petición
+        const { decryptedBody, aesKeyBuffer, initialVectorBuffer } = decryptRequest(req.body);
+        
+        let response;
+        
+        // Si no hay screen_id en el cuerpo descifrado, es un health check
+        if (!decryptedBody.screen_id) {
+            console.log('Health check detectado');
+            response = {
+                data: {
+                    status: "active"
+                }
+            };
+        } else {
+            response = {
+                success: true,
+                data: {}
+            };
+            
+            const { screen_id, params } = decryptedBody;
+            console.log('Parámetros descifrados:', { screen_id, params });
         
         switch(screen_id) {
             case "SELECT_SERVICE":
@@ -915,6 +935,7 @@ app.post("/flow/data", async (req, res) => {
                 };
                 break;
         }
+      }
 
         res.json(response);
     } catch (error) {
