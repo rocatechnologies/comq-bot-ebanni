@@ -3110,7 +3110,7 @@ class Conversation {
                                     flow_action_data: {
                                         flow_id: "2436991323137895",
                                         navigation: {
-                                            screen: "SERVICE_AND_LOCATION"
+                                            screen: "WELCOME"
                                         }
                                     }
                                 }
