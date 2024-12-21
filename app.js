@@ -986,92 +986,91 @@ class FlowHandler {
     console.log("\n=== PROCESANDO SOLICITUD DE FLOW ===");
     console.log("Datos recibidos:", decryptedBody);
 
-    const { action, screen_id = "", data = {} } = decryptedBody;
+    const { action, screen_id, data = {} } = decryptedBody;
 
     // Health check
     if (action === "ping") {
       return { data: { status: "active" } };
     }
 
-    // Manejo de errores en la navegación
-    if (data.error) {
-      console.log("Error detectado en navegación:", data.error);
-      console.log("Mensaje de error:", data.error_message);
-      // Reiniciar el flow desde WELCOME
+    // Inicio o reinicio del flow
+    if (!screen_id || action === "INIT") {
       return {
         version: "3.0",
         screen: "WELCOME",
-        data: {}
-      };
-    }
-
-    // Inicialización o reinicio del flow
-    if (screen_id === "" || action === "INIT") {
-      return {
-        version: "3.0",
-        screen: "WELCOME",
-        data: {}
-      };
-    }
-
-    // Manejo de acciones específicas por pantalla
-    switch (screen_id) {
-      case "WELCOME":
-        return await this.handleWelcomeAction(action, data);
-      case "SERVICE_AND_LOCATION":
-        return await this.handleServiceAndLocationAction(action, data);
-      case "APPOINTMENT_DETAILS":
-        return await this.handleAppointmentDetailsAction(action, data);
-      default:
-        throw new Error(`Pantalla no soportada: ${screen_id}`);
-    }
-  }
-
-  async handleWelcomeAction(action, data) {
-    if (action === "goto_service") {
-      // Obtener datos necesarios
-      const services = this.getServiciosDisponibles();
-      const locations = this.getCentrosDisponibles();
-
-      return {
-        version: "3.0",
-        screen: "SERVICE_AND_LOCATION",
-        data: {
-          services,
-          locations,
-          is_services_enabled: true,
-          is_location_enabled: true
+        data: {},
+        runtime_data: {
+          navigation: {
+            next_screen: "SERVICE_AND_LOCATION"
+          }
         }
       };
     }
-    throw new Error(`Acción no soportada en WELCOME: ${action}`);
-  }
 
-  async handleServiceAndLocationAction(action, data) {
-    if (action === "data_exchange") {
-      const { service, location } = data;
-      if (!service || !location) {
-        throw new Error("Faltan datos de servicio o ubicación");
+    try {
+      // Manejo de acciones específicas
+      switch (screen_id) {
+        case "WELCOME":
+          if (action === "data_exchange") {
+            const services = this.getServiciosDisponibles();
+            const locations = this.getCentrosDisponibles();
+
+            return {
+              version: "3.0",
+              screen: "SERVICE_AND_LOCATION",
+              data: {
+                services,
+                locations,
+                is_services_enabled: true,
+                is_location_enabled: true
+              }
+            };
+          }
+          break;
+
+        case "SERVICE_AND_LOCATION":
+          if (action === "data_exchange") {
+            const { service, location } = data;
+            
+            // Validar datos necesarios
+            if (!service || !location) {
+              throw new Error("Faltan datos de servicio o ubicación");
+            }
+
+            const availableDates = await this.getAvailableDates(location);
+            const availableStaff = await this.getAvailableStaff(service, location);
+            const availableTimes = this.getInitialAvailableTimes();
+
+            return {
+              version: "3.0",
+              screen: "APPOINTMENT_DETAILS",
+              data: {
+                available_dates: availableDates,
+                available_staff: availableStaff,
+                available_times: availableTimes,
+                selected_service: service,
+                selected_location: location
+              }
+            };
+          }
+          break;
       }
 
-      // Obtener datos para la siguiente pantalla
-      const availableDates = await this.getAvailableDates(location);
-      const availableStaff = await this.getAvailableStaff(service, location);
-      const availableTimes = await this.getInitialAvailableTimes();
+      // Si llegamos aquí, es una acción no soportada
+      throw new Error(`Acción no soportada: ${action} en pantalla ${screen_id}`);
 
+    } catch (error) {
+      console.error("Error procesando request:", error);
+      // En caso de error, volvemos a WELCOME
       return {
         version: "3.0",
-        screen: "APPOINTMENT_DETAILS",
+        screen: "WELCOME",
         data: {
-          available_dates: availableDates,
-          available_staff: availableStaff,
-          available_times: availableTimes,
-          selected_service: service,
-          selected_location: location
+          error: true,
+          error_message: error.message
         }
       };
     }
-    throw new Error(`Acción no soportada en SERVICE_AND_LOCATION: ${action}`);
   }
 
   getServiciosDisponibles() {
@@ -1093,12 +1092,28 @@ class FlowHandler {
       }));
   }
 
+  getInitialAvailableTimes() {
+    const times = [];
+    const startTime = moment().set({hour: 10, minute: 0});
+    const endTime = moment().set({hour: 21, minute: 30});
+
+    while (startTime.isSameOrBefore(endTime)) {
+      times.push({
+        id: startTime.format('HH:mm'),
+        title: startTime.format('HH:mm')
+      });
+      startTime.add(30, 'minutes');
+    }
+    return times;
+  }
+
   async getAvailableDates(locationId) {
     const dates = [];
     const startDate = moment();
     
     for (let i = 0; i < 30; i++) {
       const currentDate = startDate.clone().add(i, 'days');
+      // No mostrar domingos excepto en diciembre
       if (currentDate.day() !== 0 || currentDate.month() === 11) {
         dates.push({
           id: currentDate.format('YYYY-MM-DD'),
@@ -1119,22 +1134,6 @@ class FlowHandler {
       id: p.peluqueroID,
       title: p.name
     }));
-  }
-
-  getInitialAvailableTimes() {
-    // Horarios de 10:00 a 21:30 en intervalos de 30 minutos
-    const times = [];
-    const startTime = moment().set({hour: 10, minute: 0});
-    const endTime = moment().set({hour: 21, minute: 30});
-
-    while (startTime.isSameOrBefore(endTime)) {
-      times.push({
-        id: startTime.format('HH:mm'),
-        title: startTime.format('HH:mm')
-      });
-      startTime.add(30, 'minutes');
-    }
-    return times;
   }
 }
 
@@ -3076,7 +3075,7 @@ class Conversation {
             to: this.from,
             type: "template",
             template: {
-                name: "pedircita",
+                name: "pedircita2",
                 language: {
                     code: "es"
                 },
