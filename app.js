@@ -1019,7 +1019,7 @@ class FlowHandler {
         }
 
         // Solicitud inicial o INIT
-        if (action === "INIT" || !screen_id) {
+        if (action === "INIT") {
             console.log("Solicitud inicial detectada");
             const initialData = {
                 screen: "SERVICE_AND_LOCATION",
@@ -1037,7 +1037,9 @@ class FlowHandler {
         // Intercambio de datos
         if (action === "data_exchange") {
             console.log("Procesando intercambio de datos:", data);
-            return await this.handleDataExchange(screen_id, data);
+            const response = await this.handleDataExchange(screen_id, data);
+            console.log("Respuesta del intercambio de datos:", JSON.stringify(response, null, 2));
+            return response;
         }
 
         throw new Error(`Acción no soportada: ${action}`);
@@ -3121,12 +3123,6 @@ class Conversation {
   async ProcesarFlow(gpt) {
     let rtn = new Message(WhoEnum.System);
     
-    // Utilizar los métodos de FlowHandler
-    const serviciosDisponibles = flowHandler.getServiciosDisponibles();
-    const centrosDisponibles = flowHandler.getCentrosDisponibles();
-    
-    console.log("Servicios disponibles:", serviciosDisponibles);
-    console.log("Centros disponibles:", centrosDisponibles);
     try {
         console.log("Iniciando procesamiento de flow...");
         
@@ -3150,16 +3146,9 @@ class Conversation {
                             {
                                 type: "action",
                                 action: {
-                                    flow_token: "your_flow_token", // Añadir si es necesario
                                     flow_action_data: {
                                         flow_id: "2436991323137895",
-                                        screen: "SERVICE_AND_LOCATION",
-                                        screen_data: {
-                                            services: serviciosDisponibles,
-                                            locations: centrosDisponibles,
-                                            is_services_enabled: true,
-                                            is_location_enabled: true
-                                        }
+                                        screen: "SERVICE_AND_LOCATION"
                                     }
                                 }
                             }
@@ -3168,16 +3157,16 @@ class Conversation {
                 ]
             }
         };
-        console.log("Enviando plantilla de flow:", JSON.stringify(data, null, 2));
 
+        console.log("Enviando plantilla de flow:", JSON.stringify(data, null, 2));
         await WhatsApp.Send(_phone_number_id, data);
         
-        rtn.message = "Flow de cita iniciado correctamente. Por favor, continúa en la ventana del flow para seleccionar el servicio y el centro.";
+        rtn.message = "Flow de cita iniciado correctamente.";
         await statisticsManager.incrementInteractions();
         
     } catch (error) {
         console.error('Error al procesar el flow:', error);
-        rtn.message = "Hubo un error al iniciar el flow de cita. Por favor, intenta indicarme directamente el servicio y el centro que prefieres.";
+        rtn.message = "Hubo un error al iniciar el flow de cita.";
         await statisticsManager.incrementFailedOperations();
         await LogError(
             this.from,
