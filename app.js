@@ -998,7 +998,7 @@ class FlowHandler {
 
   async processRequest(decryptedBody) {
     console.log("\n=== PROCESANDO SOLICITUD DE FLOW ===");
-    console.log("Datos recibidos:", decryptedBody);
+    //console.log("Datos recibidos:", decryptedBody);
 
     const action = decryptedBody.action || '';
     const screen = decryptedBody.screen || '';
@@ -1210,6 +1210,8 @@ class FlowHandler {
                 serviceId,
                 locationId
             );
+
+            console.log("LN 1214 fechasDisponibles:", fechasDisponibles);
 
             return {
                 success: true,
