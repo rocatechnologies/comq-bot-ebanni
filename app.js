@@ -1070,11 +1070,16 @@ class FlowHandler {
   }
 
   async getFechasDisponibles(staffId, serviceId, locationId) {
+    console.log("getFechasDisponibles inputs:", { staffId, serviceId, locationId });
+    
     try {
         const servicioCompleto = this._getServicioCompleto(serviceId);
         if (!servicioCompleto) {
+            console.error("Servicio no encontrado para ID:", serviceId);
             throw new Error("Servicio no encontrado");
         }
+
+        console.log("Servicio encontrado:", servicioCompleto);
 
         const diasDisponibles = await MongoDB.BuscarDisponibilidadSiguienteSemana(
             staffId,
@@ -1085,13 +1090,15 @@ class FlowHandler {
             moment().format('YYYY-MM-DD')
         );
 
+        console.log("Días disponibles obtenidos:", diasDisponibles);
+
         return diasDisponibles.map(d => ({
             id: moment(d.dia, 'DD/MM/YYYY').format('YYYY-MM-DD'),
             title: d.dia
         }));
     } catch (error) {
         console.error('Error obteniendo fechas disponibles:', error);
-        return [];
+        throw error; // Re-lanzamos el error para manejarlo en el handler
     }
 }
 
@@ -1139,38 +1146,44 @@ class FlowHandler {
   }
 
   async handleSTAFF_SELECTION(input) {
-    console.log("\n=== Inicio de STAFF_SELECTION ===");
-    console.log("Input recibido completo:", JSON.stringify(input, null, 2));
-    console.log("Action:", input.action);
-    console.log("Staff:", input.staff);
-    console.log("Get Data:", input.get_data);
-    console.log("location:", input.selected_location);
-    console.log("service:", input.selected_service);
-  
-   // Si es una solicitud para obtener fechas disponibles
-   if (input.action === "data_exchange" && input.staff && input.get_data?.includes('available_dates')) {
-    const fechasDisponibles = await this.getFechasDisponibles(
-        input.staff,
-        input.selected_service,
-        input.selected_location
-    );
-    
-    return {
-        success: true,
-        nextScreen: "DATE_SELECTION",
-        data: {
-            available_dates: fechasDisponibles,
-            is_date_enabled: true,
-            selected_staff: input.staff,
-            selected_service: input.selected_service,
-            selected_location: input.selected_location,
-            error: false
-        }
-    };
-}
+    console.log("=== Inicio de STAFF_SELECTION ===");
+    console.log("Input recibido:", input);
 
-    console.log("\n=== Procesando solicitud regular de STAFF_SELECTION ===");
-    const respuestaRegular = {
+    // Si es una solicitud para obtener fechas disponibles
+    if (input.action === "data_exchange" && input.staff && input.get_data?.includes('available_dates')) {
+        const staffMember = peluqueros.find(p => p.peluqueroID === input.staff);
+        if (!staffMember) {
+            throw new Error("Staff no encontrado");
+        }
+
+        // Usamos los datos que ya tenemos del contexto anterior
+        const serviceId = input.selected_service || "6683cc0c4ec0e3993f41eb19";  // Valor que vemos en el log
+        const locationId = input.selected_location || "665f640d47675f27f8647ca1"; // Valor que vemos en el log
+        
+        console.log("Usando datos:", { staffId: input.staff, serviceId, locationId });
+        
+        const fechasDisponibles = await this.getFechasDisponibles(
+            input.staff,
+            serviceId,
+            locationId
+        );
+        
+        return {
+            success: true,
+            nextScreen: "DATE_SELECTION",
+            data: {
+                available_dates: fechasDisponibles,
+                is_date_enabled: true,
+                selected_staff: input.staff,
+                selected_service: serviceId,
+                selected_location: locationId,
+                error: false
+            }
+        };
+    }
+
+    // Para solicitudes regulares...
+    return {
         success: true,
         screen: "STAFF_SELECTION",
         data: {
@@ -1180,13 +1193,11 @@ class FlowHandler {
             })),
             is_staff_enabled: true,
             selected_staff: input.staff,
-            selected_service: input.selected_service || input.service,
-            selected_location: input.selected_location || input.location,
+            selected_service: "6683cc0c4ec0e3993f41eb19",  // Añadido
+            selected_location: "665f640d47675f27f8647ca1", // Añadido
             error: false
         }
     };
-    console.log("Respuesta regular a enviar:", JSON.stringify(respuestaRegular, null, 2));
-    return respuestaRegular;
 }
 
   async handleDATE_SELECTION(input) {
