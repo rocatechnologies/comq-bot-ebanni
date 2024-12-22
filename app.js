@@ -937,6 +937,7 @@ const decryptRequest = (body) => {
 
 const encryptResponse = (response, aesKeyBuffer, initialVectorBuffer) => {
   console.log('Iniciando encriptación de respuesta...');
+  console.log("response de encryptResponse:", encryptResponse);
   try {
       // Invertir el vector inicial
       const flipped_iv = [];
@@ -959,7 +960,7 @@ const encryptResponse = (response, aesKeyBuffer, initialVectorBuffer) => {
           cipher.getAuthTag(),
       ]).toString("base64");
       
-      //console.log('Respuesta encriptada exitosamente');
+      console.log('Respuesta encriptada:', encryptedResponse);
       return encryptedResponse;
   } catch (error) {
       console.error('Error en encryptResponse:', error);
