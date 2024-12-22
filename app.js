@@ -1136,6 +1136,8 @@ class FlowHandler {
         selected_service: input.service,
         selected_location: input.location
       };
+      this.lastSelectedService = responseData.selected_service;
+      this.lastSelectedLocation = responseData.selected_location;
 
       console.log("Enviando respuesta con datos:", responseData);
 
