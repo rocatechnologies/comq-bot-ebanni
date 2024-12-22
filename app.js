@@ -980,6 +980,9 @@ const ENDPOINT_TIMEOUT = 30000; // 30 segundos
  */
 
 class FlowHandler {
+  static lastSelectedService = null;
+  static lastSelectedLocation = null;
+
   constructor() {
     this.ROUTING_MODEL = {
       "WELCOME": ["SERVICE_AND_LOCATION"],
@@ -991,9 +994,6 @@ class FlowHandler {
       "SUMMARY": ["CONFIRMATION"],
       "CONFIRMATION": []
     };
-
-    this.lastSelectedService = null;
-    this.lastSelectedLocation = null;
   }
 
   async processRequest(decryptedBody) {
@@ -1155,9 +1155,9 @@ class FlowHandler {
       const servicioCompleto = this._getServicioCompleto(input.service);
       const staffDelCentro = peluqueros.filter(p => p.salonID === input.location);
 
-      // Guardar los datos seleccionados
-      this.lastSelectedService = input.service;
-      this.lastSelectedLocation = input.location;
+      // Guardar en las variables estáticas
+      FlowHandler.lastSelectedService = input.service;
+      FlowHandler.lastSelectedLocation = input.location;
 
       // Guarda estos valores en los datos que se devuelven
       responseData = {
@@ -1166,8 +1166,8 @@ class FlowHandler {
           title: p.name
         })),
         is_staff_enabled: true,
-        selected_service: input.service,
-        selected_location: input.location
+        selected_service: FlowHandler.lastSelectedService,
+        selected_location: FlowHandler.lastSelectedLocation
       };
 
       console.log("RESPONSEDATA Enviando respuesta con datos:", responseData);
@@ -1196,8 +1196,8 @@ class FlowHandler {
     if (input.action === "data_exchange" && input.staff && input.get_data?.includes('available_dates')) {
         try {
             // Usamos los valores del input actual
-            const serviceId = input.selected_service || this.lastSelectedService;
-            const locationId = input.selected_location || this.lastSelectedLocation;
+            const serviceId = FlowHandler.lastSelectedService;
+            const locationId = FlowHandler.lastSelectedLocation;
 
             console.log("Usando datos:", {
                 staffId: input.staff,
