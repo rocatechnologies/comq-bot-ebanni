@@ -1113,14 +1113,33 @@ class FlowHandler {
   }
 
   async handleSTAFF_SELECTION(input) {
-    console.log("=== Inicio de STAFF_SELECTION ===");
-    console.log("Input recibido:", input);
+    console.log("\n=== Inicio de STAFF_SELECTION ===");
+    console.log("Input recibido completo:", JSON.stringify(input, null, 2));
+    console.log("Action:", input.action);
+    console.log("Staff:", input.staff);
+    console.log("Get Data:", input.get_data);
   
     // Si es una solicitud para obtener fechas disponibles
     if (input.action === "data_exchange" && input.staff && input.get_data?.includes('available_dates')) {
+        console.log("\n=== Procesando solicitud de fechas disponibles ===");
         try {
             const location_id = input.selected_location || input.location;
+            console.log("Location ID:", location_id);
+            
             const servicioCompleto = this._getServicioCompleto(input.selected_service || input.service);
+            console.log("Servicio completo encontrado:", JSON.stringify(servicioCompleto, null, 2));
+            
+            if (!servicioCompleto) {
+                throw new Error("No se encontró el servicio");
+            }
+            
+            console.log("\nParámetros para BuscarDisponibilidadSiguienteSemana:");
+            console.log("- Staff ID:", input.staff);
+            console.log("- Location ID:", location_id);
+            console.log("- Nombre servicio:", servicioCompleto.nombre);
+            console.log("- Especialidad ID:", servicioCompleto.especialidadID);
+            console.log("- Duración:", servicioCompleto.duracion);
+            console.log("- Fecha inicio:", moment().format('YYYY-MM-DD'));
             
             // Obtener fechas disponibles
             const diasDisponibles = await MongoDB.BuscarDisponibilidadSiguienteSemana(
@@ -1132,7 +1151,9 @@ class FlowHandler {
                 moment().format('YYYY-MM-DD')
             );
             
-            return {
+            console.log("\nDías disponibles obtenidos:", JSON.stringify(diasDisponibles, null, 2));
+            
+            const respuesta = {
                 success: true,
                 nextScreen: "DATE_SELECTION",
                 data: {
@@ -1147,8 +1168,14 @@ class FlowHandler {
                     error: false
                 }
             };
+            
+            console.log("\nRespuesta a enviar:", JSON.stringify(respuesta, null, 2));
+            return respuesta;
+            
         } catch (error) {
-            console.error('Error al obtener fechas disponibles:', error);
+            console.error('\n=== Error en STAFF_SELECTION ===');
+            console.error('Error completo:', error);
+            console.error('Stack trace:', error.stack);
             return {
                 success: false,
                 nextScreen: "STAFF_SELECTION",
@@ -1163,8 +1190,8 @@ class FlowHandler {
         }
     }
 
-    // Para cualquier otra solicitud en STAFF_SELECTION
-    return {
+    console.log("\n=== Procesando solicitud regular de STAFF_SELECTION ===");
+    const respuestaRegular = {
         success: true,
         screen: "STAFF_SELECTION",
         data: {
@@ -1179,6 +1206,8 @@ class FlowHandler {
             error: false
         }
     };
+    console.log("Respuesta regular a enviar:", JSON.stringify(respuestaRegular, null, 2));
+    return respuestaRegular;
 }
 
   async handleDATE_SELECTION(input) {
