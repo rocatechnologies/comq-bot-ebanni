@@ -1025,6 +1025,19 @@ class FlowHandler {
       // Procesar la solicitud según la pantalla actual
       const result = await this.handleNavigation(screen, data);
 
+      // En caso de error, mantener la pantalla actual
+      if (!result.success) {
+        return {
+            version: "3.0",
+            screen: screen, // Mantenemos la pantalla actual
+            data: {
+                ...result.data,
+                error: true,
+                error_message: result.error
+            }
+        };
+    }
+
       // Construir la respuesta en el formato esperado
       return {
         version: "3.0",
@@ -1038,14 +1051,15 @@ class FlowHandler {
 
     } catch (error) {
       console.error("Error procesando request:", error);
-      return {
-        version: "3.0",
-        screen: "WELCOME",
-        data: {
-          error: true,
-          error_message: error.message
-        }
-      };
+        // En caso de error, mantener la pantalla actual
+        return {
+            version: "3.0",
+            screen: screen, // Mantenemos la pantalla actual
+            data: {
+                error: true,
+                error_message: error.message
+            }
+        };
     }
   }
 
@@ -1106,6 +1120,7 @@ class FlowHandler {
 }
 
   async handleWELCOME(input) {
+    console.log("=== Inicio de WELCOME ===");
     if (input.action === "data_exchange") {
       return {
         success: true,
@@ -1123,6 +1138,7 @@ class FlowHandler {
 
   async handleSERVICE_AND_LOCATION(input) {
     let responseData = {};
+    console.log("=== Inicio de SERVICE_AND_LOCATION ===");
     console.log("input.acton:", input.action);
     console.log("input.service:", input.service);
     console.log("input.location:", input.location);
