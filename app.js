@@ -4336,6 +4336,35 @@ static async BuscarDisponibilidadSiguienteSemana(
   }
 }
 
+static async ObtenerCitasPeriodo(peluqueroID, salonID, fechaInicio, fechaFin) {
+  try {
+      // Crear los filtros de búsqueda
+      const filtros = {
+          'peluquero.peluqueroID': peluqueroID,
+          salonID: salonID,
+          fecha: {
+              $gte: fechaInicio,
+              $lte: fechaFin
+          }
+      };
+
+      // Buscar todas las citas que cumplan con los filtros
+      const citas = await citasCollection.find(filtros).toArray();
+
+      // Mapear las citas al formato que necesitamos
+      return citas.map(cita => ({
+          fecha: cita.fecha,
+          horaInicio: cita.horaInicio,
+          horaFin: cita.horaFin,
+          estado: cita.estado
+      }));
+
+  } catch (error) {
+      console.error('Error al obtener citas del período:', error);
+      throw new Error('Error al consultar las citas del período');
+  }
+}
+
 static async ObtenerDiasDisponiblesSemana(
   peluqueroID,
   salonID,
