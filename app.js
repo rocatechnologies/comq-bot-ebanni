@@ -1169,8 +1169,6 @@ class FlowHandler {
         selected_service: input.service,
         selected_location: input.location
       };
-      this.lastSelectedService = responseData.selected_service;
-      this.lastSelectedLocation = responseData.selected_location;
 
       console.log("RESPONSEDATA Enviando respuesta con datos:", responseData);
 
@@ -1180,7 +1178,14 @@ class FlowHandler {
         data: responseData
       };
     }
-    return { success: true, data: {responseData} };
+    return { 
+      success: true, 
+      data: {
+          ...responseData,
+          selected_service: this.lastSelectedService,
+          selected_location: this.lastSelectedLocation
+      }
+  };
   }
 
   async handleSTAFF_SELECTION(input) {
@@ -1189,44 +1194,56 @@ class FlowHandler {
 
     // Si es una solicitud para obtener fechas disponibles
     if (input.action === "data_exchange" && input.staff && input.get_data?.includes('available_dates')) {
-        const serviceId = this.lastSelectedService;  // Usar datos guardados
-        const locationId = this.lastSelectedLocation;
-        const staffMember = peluqueros.find(p => p.peluqueroID === input.staff);
-        if (!staffMember) {
-            throw new Error("Staff no encontrado");
-        }
+        try {
+            // Usamos los valores del input actual
+            const serviceId = input.selected_service || this.lastSelectedService;
+            const locationId = input.selected_location || this.lastSelectedLocation;
 
-        if (!serviceId || !locationId) {
-            throw new Error("No se encontraron datos de servicio o ubicación");
-        }
+            console.log("Usando datos:", {
+                staffId: input.staff,
+                serviceId,
+                locationId
+            });
 
-        // Guardamos los últimos valores seleccionados
-        this.lastSelectedService = serviceId;
-        this.lastSelectedLocation = locationId;
-        
-        console.log("Usando datos:", { staffId: input.staff, serviceId, locationId });
-        
-        const fechasDisponibles = await this.getFechasDisponibles(
-            input.staff,
-            serviceId,
-            locationId
-        );
-        
-        return {
-            success: true,
-            nextScreen: "DATE_SELECTION",
-            data: {
-                available_dates: fechasDisponibles,
-                is_date_enabled: true,
-                selected_staff: input.staff,
-                selected_service: serviceId,
-                selected_location: locationId,
-                error: false
-            }
-        };
+            const fechasDisponibles = await this.getFechasDisponibles(
+                input.staff,
+                serviceId,
+                locationId
+            );
+
+            return {
+                success: true,
+                nextScreen: "DATE_SELECTION",
+                data: {
+                    available_dates: fechasDisponibles,
+                    is_date_enabled: true,
+                    selected_staff: input.staff,
+                    selected_service: serviceId,
+                    selected_location: locationId,
+                    error: false
+                }
+            };
+        } catch (error) {
+            console.error("Error en STAFF_SELECTION:", error);
+            return {
+                success: false,
+                screen: "STAFF_SELECTION",
+                data: {
+                    available_staff: peluqueros.map(p => ({
+                        id: p.peluqueroID,
+                        title: p.name
+                    })),
+                    is_staff_enabled: true,
+                    selected_service: input.selected_service,
+                    selected_location: input.selected_location,
+                    error: true,
+                    error_message: error.message
+                }
+            };
+        }
     }
 
-    // Mantener los valores seleccionados en la respuesta regular también
+    // Para solicitudes regulares
     return {
         success: true,
         screen: "STAFF_SELECTION",
@@ -1237,8 +1254,8 @@ class FlowHandler {
             })),
             is_staff_enabled: true,
             selected_staff: input.staff,
-            selected_service: this.lastSelectedService,
-            selected_location: this.lastSelectedLocation,
+            selected_service: input.selected_service,
+            selected_location: input.selected_location,
             error: false
         }
     };
