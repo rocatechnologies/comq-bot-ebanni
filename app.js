@@ -1139,7 +1139,7 @@ class FlowHandler {
       this.lastSelectedService = responseData.selected_service;
       this.lastSelectedLocation = responseData.selected_location;
 
-      console.log("Enviando respuesta con datos:", responseData);
+      console.log("RESPONSEDATA Enviando respuesta con datos:", responseData);
 
       return {
         success: true,
@@ -1162,14 +1162,9 @@ class FlowHandler {
         }
 
         // Intentamos obtener los valores de diferentes fuentes en orden de prioridad
-        const serviceId = input.selected_service || 
-                         input.service || 
-                         this.lastSelectedService;  // Podríamos mantener esto en la clase
+        const serviceId = this.lastSelectedService;  // Podríamos mantener esto en la clase
         
-        const locationId = input.selected_location || 
-                          input.location || 
-                          staffMember.salonID ||    // Podemos usar el salón del staff
-                          this.lastSelectedLocation;
+        const locationId = this.lastSelectedLocation;
 
         if (!serviceId || !locationId) {
             throw new Error("No se encontraron datos de servicio o ubicación");
