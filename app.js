@@ -990,28 +990,6 @@ class FlowHandler {
       "SUMMARY": ["CONFIRMATION"],
       "CONFIRMATION": []
     };
-
-    // Inicializar el estado con valores por defecto
-    this.resetState();
-  }
-
-  resetState() {
-    this.currentState = {
-      selectedService: null,
-      selectedLocation: null,
-      selectedStaff: null,
-      selectedDate: null,
-      selectedTime: null,
-      customerDetails: null
-    };
-  }
-
-  // Método para actualizar el estado manteniendo valores existentes
-  updateState(newData) {
-    this.currentState = {
-      ...this.currentState,
-      ...newData
-    };
   }
 
   async processRequest(decryptedBody) {
@@ -1110,53 +1088,16 @@ class FlowHandler {
   async handleSERVICE_AND_LOCATION(input) {
     if (input.action === "data_exchange" && input.service && input.location) {
       const servicioCompleto = this._getServicioCompleto(input.service);
-      this.currentState = {
-        ...this.currentState,
-        selectedService: servicioCompleto,
-        selectedLocation: input.location
-      };
-      
-      console.log("Estado actualizado en SERVICE_AND_LOCATION:", this.currentState);
-
-
-      // Si solo necesitamos el staff disponible, usamos un enfoque más simple
-      if (input.get_data && input.get_data.includes('available_staff')) {
-        const staffDelCentro = peluqueros.filter(p => p.salonID === input.location);
-        return {
-          success: true,
-          nextScreen: "STAFF_SELECTION",
-          data: {
-            available_staff: staffDelCentro.map(p => ({
-              id: p.peluqueroID,
-              title: p.name
-            })),
-            is_staff_enabled: true,
-            selected_service: input.service,
-            selected_location: input.location
-          }
-        };
-      }
-
-      // Si necesitamos verificar disponibilidad real, usamos ListarPeluquerosDisponibles
-      const peluquerosDisponibles = await MongoDB.ListarPeluquerosDisponibles(
-        moment().set({hour: 10, minute: 0}), // Usamos la hora de apertura
-        this.currentState.selectedLocation,
-        this.currentState.selectedService.nombre,
-        this.currentState.selectedService.especialidadID,
-        this.currentState.selectedService.duracion
-      );
+      const staffDelCentro = peluqueros.filter(p => p.salonID === input.location);
 
       return {
         success: true,
         nextScreen: "STAFF_SELECTION",
         data: {
-          available_staff: peluquerosDisponibles.map(pId => {
-            const peluquero = peluqueros.find(p => p.peluqueroID === pId);
-            return {
-              id: pId,
-              title: peluquero?.name || 'Desconocido'
-            };
-          }),
+          available_staff: staffDelCentro.map(p => ({
+            id: p.peluqueroID,
+            title: p.name
+          })),
           is_staff_enabled: true,
           selected_service: input.service,
           selected_location: input.location
@@ -1167,40 +1108,16 @@ class FlowHandler {
   }
 
   async handleSTAFF_SELECTION(input) {
-
-    console.log("=== Inicio de STAFF_SELECTION ===");
-    console.log("Estado actual:", this.currentState);
-    console.log("Input recibido:", input);
-    // Si es una solicitud para obtener fechas disponibles
     if (input.action === "data_exchange" && input.staff && input.get_data?.includes('available_dates')) {
-      this.updateState({
-        selectedStaff: input.staff
-      });
-
-      console.log("Verificando location para filtrar staff:", this.currentState.selectedLocation);
+      const servicioCompleto = this._getServicioCompleto(input.selected_service);
       
-      if (!this.currentState.selectedLocation) {
-        console.error("No hay ubicación seleccionada en el estado");
-        return {
-          success: false,
-          screen: "STAFF_SELECTION",
-          data: {
-            error: true,
-            error_message: "No se ha seleccionado una ubicación"
-          }
-        };
-      }
-      
-      const staffDelCentro = peluqueros.filter(p => p.salonID === this.currentState.selectedLocation);
-      console.log("Staff filtrado:", staffDelCentro);
-
       try {
         const diasDisponibles = await MongoDB.BuscarDisponibilidadSiguienteSemana(
           input.staff,
-          this.currentState.selectedLocation,
-          this.currentState.selectedService?.nombre || '',
-          this.currentState.selectedService?.especialidadID || '',
-          this.currentState.selectedService?.duracion || 30,
+          input.selected_location,
+          servicioCompleto.nombre,
+          servicioCompleto.especialidadID,
+          servicioCompleto.duracion,
           moment().format('YYYY-MM-DD')
         );
 
@@ -1213,8 +1130,8 @@ class FlowHandler {
               title: d.dia
             })),
             selected_staff: input.staff,
-            selected_service: this.currentState.selectedService?.servicioID,
-            selected_location: this.currentState.selectedLocation
+            selected_service: input.selected_service,
+            selected_location: input.selected_location
           }
         };
       } catch (error) {
@@ -1224,71 +1141,26 @@ class FlowHandler {
           screen: "STAFF_SELECTION",
           data: {
             error: true,
-            error_message: "Error al obtener fechas disponibles",
-            selected_staff: input.staff
+            error_message: "Error al obtener fechas disponibles"
           }
         };
       }
     }
-
-    // Si es una solicitud inicial o de actualización sin selección
-    if (input.action === "data_exchange" && !input.staff) {
-      // Obtener la lista de peluqueros disponibles
-      const staffDelCentro = peluqueros.filter(p => p.salonID === this.currentState.selectedLocation);
-      return {
-        success: true,
-        screen: "STAFF_SELECTION", // Mantenemos la misma pantalla
-        data: {
-          available_staff: staffDelCentro.map(p => ({
-            id: p.peluqueroID,
-            title: p.name
-          })),
-          is_staff_enabled: true,
-          selected_service: this.currentState.selectedService?.servicioID,
-          selected_location: this.currentState.selectedLocation
-        }
-      };
-    }
-
-    // Si hay una selección de staff
-    if (input.staff) {
-
-    this.currentState.selectedStaff = input.staff;
-    const diasDisponibles = await MongoDB.BuscarDisponibilidadSiguienteSemana(
-      input.staff,
-      this.currentState.selectedLocation,
-      this.currentState.selectedService.nombre,
-      this.currentState.selectedService.especialidadID,
-      this.currentState.selectedService.duracion,
-      moment().format('YYYY-MM-DD')
-    );
-
-    return {
-      success: true,
-      nextScreen: "DATE_SELECTION",
-      data: {
-        available_dates: diasDisponibles.map(d => ({
-          id: moment(d.dia, 'DD/MM/YYYY').format('YYYY-MM-DD'),
-          title: d.dia
-        })),
-        selected_staff: input.staff
-      }
-    };
   }
-}
 
   async handleDATE_SELECTION(input) {
     // Si es una solicitud inicial o de actualización sin fecha seleccionada
     if (input.action === "data_exchange" && !input.date) {
       try {
+        const servicioCompleto = this._getServicioCompleto(input.selected_service);
         // Obtener fechas disponibles para los próximos días
         const diasDisponibles = await MongoDB.BuscarDisponibilidadSiguienteSemana(
-          this.currentState.selectedStaff,
-          this.currentState.selectedLocation,
-          this.currentState.selectedService.nombre,
-          this.currentState.selectedService.especialidadID,
-          this.currentState.selectedService.duracion,
-          moment().format('YYYY-MM-DD')
+          input.selected_staff,
+          input.selected_location,
+          servicioCompleto.nombre,
+          servicioCompleto.especialidadID,
+          servicioCompleto.duracion,
+          moment().format('YYYY-MM-DD')  // Cambiado el formato de fecha
         );
 
         return {
@@ -1296,13 +1168,13 @@ class FlowHandler {
           screen: "DATE_SELECTION",
           data: {
             available_dates: diasDisponibles.map(d => ({
-              id: moment(d.dia, 'DD/MM/YYYY').format('MM/DD/YYYY'),
-              title: d.dia // Ya está en formato DD/MM/YYYY
+              id: moment(d.dia, 'DD/MM/YYYY').format('YYYY-MM-DD'),  // Cambiado el formato
+              title: d.dia // Mantenemos el formato DD/MM/YYYY para mostrar
             })),
             is_date_enabled: true,
-            selected_staff: this.currentState.selectedStaff,
-            selected_service: this.currentState.selectedService?.servicioID,
-            selected_location: this.currentState.selectedLocation
+            selected_staff: input.selected_staff,
+            selected_service: input.selected_service,
+            selected_location: input.selected_location
           }
         };
       } catch (error) {
@@ -1320,15 +1192,14 @@ class FlowHandler {
 
     // Si hay una fecha seleccionada
     if (input.date) {
-      this.currentState.selectedDate = input.date;
       return {
         success: true,
         nextScreen: "TIME_SELECTION",
         data: {
           selected_date: input.date,
-          selected_staff: this.currentState.selectedStaff,
-          selected_service: this.currentState.selectedService?.servicioID,
-          selected_location: this.currentState.selectedLocation
+          selected_staff: input.selected_staff,
+          selected_service: input.selected_service,
+          selected_location: input.selected_location
         }
       };
     }
@@ -1338,11 +1209,12 @@ class FlowHandler {
     // Si es una solicitud inicial o de actualización sin hora seleccionada
     if (input.action === "data_exchange" && !input.time) {
       try {
+        const servicioCompleto = this._getServicioCompleto(input.selected_service);
         const horariosDisponibles = await MongoDB.BuscarHorariosDisponiblesPeluquero(
-          this.currentState.selectedStaff,
-          moment(this.currentState.selectedDate),
-          this.currentState.selectedService.duracion,
-          this.currentState.selectedLocation
+          input.selected_staff,
+          moment(input.selected_date), // La fecha ya viene en formato YYYY-MM-DD
+          servicioCompleto.duracion,
+          input.selected_location
         );
 
         return {
@@ -1354,10 +1226,10 @@ class FlowHandler {
               title: hora
             })),
             is_time_enabled: true,
-            selected_date: this.currentState.selectedDate,
-            selected_staff: this.currentState.selectedStaff,
-            selected_service: this.currentState.selectedService?.servicioID,
-            selected_location: this.currentState.selectedLocation
+            selected_date: input.selected_date,
+            selected_staff: input.selected_staff,
+            selected_service: input.selected_service,
+            selected_location: input.selected_location
           }
         };
       } catch (error) {
@@ -1375,19 +1247,48 @@ class FlowHandler {
 
     // Si hay una hora seleccionada
     if (input.time) {
-      this.currentState.selectedTime = input.time;
       return {
         success: true,
         nextScreen: "CUSTOMER_DETAILS",
         data: {
           selected_time: input.time,
-          selected_date: this.currentState.selectedDate,
-          selected_staff: this.currentState.selectedStaff,
-          selected_service: this.currentState.selectedService?.servicioID,
-          selected_location: this.currentState.selectedLocation
+          selected_date: input.selected_date,
+          selected_staff: input.selected_staff,
+          selected_service: input.selected_service,
+          selected_location: input.selected_location
         }
       };
     }
+  }
+
+  async handleCUSTOMER_DETAILS(input) {
+    if (input.action === "data_exchange" && input.customer_name && input.customer_phone) {
+      return {
+        success: true,
+        nextScreen: "SUMMARY",
+        data: {
+          selected_time: input.selected_time,
+          selected_date: input.selected_date,
+          selected_staff: input.selected_staff,
+          selected_service: input.selected_service,
+          selected_location: input.selected_location,
+          customer_name: input.customer_name,
+          customer_phone: input.customer_phone
+        }
+      };
+    }
+    
+    return {
+      success: true,
+      screen: "CUSTOMER_DETAILS",
+      data: {
+        selected_time: input.selected_time,
+        selected_date: input.selected_date,
+        selected_staff: input.selected_staff,
+        selected_service: input.selected_service,
+        selected_location: input.selected_location
+      }
+    };
   }
 
   async handleNavigation(currentScreen, input) {
@@ -1402,6 +1303,8 @@ class FlowHandler {
           return await this.handleDATE_SELECTION(input);
         case "TIME_SELECTION":
           return await this.handleTIME_SELECTION(input);
+        case "CUSTOMER_DETAILS":
+          return await this.handleCUSTOMER_DETAILS(input);
       default:
         throw new Error(`Pantalla no soportada: ${currentScreen}`);
     }
