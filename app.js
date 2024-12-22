@@ -991,6 +991,11 @@ class FlowHandler {
       "CONFIRMATION": []
     };
 
+    // Inicializar el estado con valores por defecto
+    this.resetState();
+  }
+
+  resetState() {
     this.currentState = {
       selectedService: null,
       selectedLocation: null,
@@ -998,6 +1003,14 @@ class FlowHandler {
       selectedDate: null,
       selectedTime: null,
       customerDetails: null
+    };
+  }
+
+  // Método para actualizar el estado manteniendo valores existentes
+  updateState(newData) {
+    this.currentState = {
+      ...this.currentState,
+      ...newData
     };
   }
 
@@ -1097,8 +1110,11 @@ class FlowHandler {
   async handleSERVICE_AND_LOCATION(input) {
     if (input.action === "data_exchange" && input.service && input.location) {
       const servicioCompleto = this._getServicioCompleto(input.service);
-      this.currentState.selectedService = servicioCompleto;
-      this.currentState.selectedLocation = input.location;
+      this.currentState = {
+        ...this.currentState,
+        selectedService: servicioCompleto,
+        selectedLocation: input.location
+      };
 
       // Si solo necesitamos el staff disponible, usamos un enfoque más simple
       if (input.get_data && input.get_data.includes('available_staff')) {
@@ -1150,7 +1166,9 @@ class FlowHandler {
   async handleSTAFF_SELECTION(input) {
     // Si es una solicitud para obtener fechas disponibles
     if (input.action === "data_exchange" && input.staff && input.get_data?.includes('available_dates')) {
-      this.currentState.selectedStaff = input.staff;
+      this.updateState({
+        selectedStaff: input.staff
+      });
 
       try {
         const diasDisponibles = await MongoDB.BuscarDisponibilidadSiguienteSemana(
