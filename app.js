@@ -1058,7 +1058,6 @@ class FlowHandler {
     return servicios.map(s => ({
       id: s.servicioID,
       title: s.servicio,
-      description: `Duración: ${s.duracion} minutos`,
       duracion: s.duracion,
       especialidadID: s.especialidadID
     }));
@@ -1066,7 +1065,7 @@ class FlowHandler {
 
   getCentrosDisponibles() {
     return salones
-      .filter(s => ["Nervión Caballeros", "Nervión Señora", "Duque", "Sevilla Este"]
+      .filter(s => ["Nervión Caballeros", "Nervión Señoras", "Duque", "Sevilla Este"]
         .includes(s.nombre))
       .map(s => ({
         id: s.salonID,
