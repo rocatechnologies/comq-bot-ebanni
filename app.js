@@ -1263,91 +1263,91 @@ class FlowHandler {
     };
 }
 
-  async handleDATE_SELECTION(input) {
-    console.log("\n=== Inicio de DATE_SELECTION ===");
-    console.log("Input recibido completo:", JSON.stringify(input, null, 2));
-    console.log("Action:", input.action);
-    console.log("Selected Staff:", input.selected_staff);
-    console.log("Selected Service:", input.selected_service);
-    console.log("Selected Location:", input.selected_location);
+async handleDATE_SELECTION(input) {
+  console.log("\n=== Inicio de DATE_SELECTION ===");
+  console.log("Input recibido:", input);
 
-    // Si es una solicitud inicial o de actualización sin fecha seleccionada
-    if (input.action === "data_exchange") {
+  if (input.action === "data_exchange") {
       try {
-        const servicioCompleto = this._getServicioCompleto(input.selected_service);
-        if (!servicioCompleto) {
-            throw new Error("Servicio no encontrado");
-        }
+          const servicioCompleto = this._getServicioCompleto(input.selected_service);
+          if (!servicioCompleto) {
+              throw new Error("Servicio no encontrado");
+          }
 
-        const diasDisponibles = await MongoDB.BuscarDisponibilidadSiguienteSemana(
-            input.selected_staff,
-            input.selected_location,
-            servicioCompleto.nombre,
-            servicioCompleto.especialidadID,
-            servicioCompleto.duracion,
-            moment().format('YYYY-MM-DD')
-        );
+          const diasDisponibles = await MongoDB.BuscarDisponibilidadSiguienteSemana(
+              input.selected_staff,
+              input.selected_location,
+              servicioCompleto.nombre,
+              servicioCompleto.especialidadID,
+              servicioCompleto.duracion,
+              moment().format('YYYY-MM-DD')
+          );
 
-        console.log("Días disponibles encontrados:", diasDisponibles);
+          console.log("Días disponibles obtenidos:", diasDisponibles);
 
-        return {
-            success: true,
-            nextScreen: "DATE_SELECTION",
-            data: {
-                available_dates: diasDisponibles.map(d => ({
-                    id: moment(d.dia, 'DD/MM/YYYY').format('YYYY-MM-DD'),
-                    title: d.dia,
-                    has_availability: d.tiene_disponibilidad,
-                    available_hours: d.horarios.length
-                })),
-                is_date_enabled: true,
-                selected_staff: input.selected_staff,
-                selected_service: input.selected_service,
-                selected_location: input.selected_location
-            }
-        };
-    } catch (error) {
-        console.error('Error al obtener fechas disponibles:', error);
-        return {
-            success: false,
-            nextScreen: "DATE_SELECTION",
-            data: {
-                error: true,
-                error_message: "Error al obtener fechas disponibles: " + error.message,
-                selected_staff: input.selected_staff,
-                selected_service: input.selected_service,
-                selected_location: input.selected_location
-            }
-        };
-    }
-    }
+          // Transformamos los datos manteniendo la información de disponibilidad
+          const available_dates = diasDisponibles.map(d => ({
+              id: moment(d.dia, 'DD/MM/YYYY').format('YYYY-MM-DD'),
+              title: d.dia,
+              has_availability: d.tiene_disponibilidad,
+              available_hours: d.horarios.length,
+              // Opcional: incluir los horarios si los necesitas después
+              hours: d.horarios
+          }));
 
-    // Si hay una fecha seleccionada
-    if (input.date) {
-        return {
-            success: true,
-            nextScreen: "TIME_SELECTION",
-            data: {
-                selected_date: input.date,
-                selected_staff: input.selected_staff,
-                selected_service: input.selected_service,
-                selected_location: input.selected_location
-            }
-        };
-    }
+          console.log("Fechas procesadas:", available_dates);
 
-    // Si no se cumple ninguna de las condiciones anteriores
-    return {
-        success: false,
-        nextScreen: "DATE_SELECTION",
-        data: {
-            error: true,
-            error_message: "Solicitud no válida",
-            selected_staff: input.selected_staff,
-            selected_service: input.selected_service,
-            selected_location: input.selected_location
-        }
-    };
+          return {
+              success: true,
+              nextScreen: "DATE_SELECTION",
+              data: {
+                  available_dates,
+                  is_date_enabled: true,
+                  selected_staff: input.selected_staff,
+                  selected_service: input.selected_service,
+                  selected_location: input.selected_location,
+                  error: false
+              }
+          };
+      } catch (error) {
+          console.error('Error al obtener fechas disponibles:', error);
+          return {
+              success: false,
+              data: {
+                  error: true,
+                  error_message: "Error al obtener fechas disponibles: " + error.message,
+                  selected_staff: input.selected_staff,
+                  selected_service: input.selected_service,
+                  selected_location: input.selected_location
+              }
+          };
+      }
+  }
+
+  // Si hay una fecha seleccionada
+  if (input.date) {
+      return {
+          success: true,
+          nextScreen: "TIME_SELECTION",
+          data: {
+              selected_date: input.date,
+              selected_staff: input.selected_staff,
+              selected_service: input.selected_service,
+              selected_location: input.selected_location
+          }
+      };
+  }
+
+  return {
+      success: false,
+      data: {
+          error: true,
+          error_message: "Solicitud no válida",
+          selected_staff: input.selected_staff,
+          selected_service: input.selected_service,
+          selected_location: input.selected_location
+      }
+  };
 }
 
   async handleTIME_SELECTION(input) {
@@ -1500,6 +1500,8 @@ class FlowHandler {
 }
 
 app.post("/flow/data", async (req, res) => {
+  // Aumentar el timeout de la respuesta
+  res.setTimeout(30000); // 30 segundos
   console.log("\n=== INICIO PROCESAMIENTO FLOW DATA ===");
   //console.log('Request body:', JSON.stringify(req.body, null, 2));
   
