@@ -1090,18 +1090,23 @@ class FlowHandler {
       const servicioCompleto = this._getServicioCompleto(input.service);
       const staffDelCentro = peluqueros.filter(p => p.salonID === input.location);
 
+      // Guarda estos valores en los datos que se devuelven
+      const responseData = {
+        available_staff: staffDelCentro.map(p => ({
+          id: p.peluqueroID,
+          title: p.name
+        })),
+        is_staff_enabled: true,
+        selected_service: input.service,
+        selected_location: input.location
+      };
+
+      console.log("Enviando respuesta con datos:", responseData);
+
       return {
         success: true,
         nextScreen: "STAFF_SELECTION",
-        data: {
-          available_staff: staffDelCentro.map(p => ({
-            id: p.peluqueroID,
-            title: p.name
-          })),
-          is_staff_enabled: true,
-          selected_service: input.service,
-          selected_location: input.location
-        }
+        data: responseData
       };
     }
     return { success: true, data: {} };
@@ -1111,43 +1116,38 @@ class FlowHandler {
     console.log("=== Inicio de STAFF_SELECTION ===");
     console.log("Input recibido:", input);
 
-    // Si es una solicitud para obtener fechas disponibles
+    // Mantener los valores seleccionados de la pantalla anterior
+    const selectedService = input.selected_service;
+    const selectedLocation = input.selected_location;
+
     if (input.action === "data_exchange" && input.staff && input.get_data?.includes('available_dates')) {
-      // Verificar que tenemos todos los datos necesarios
-      if (!input.selected_service || !input.selected_location) {
-        console.error('Faltan datos necesarios:', { 
-          service: input.selected_service, 
-          location: input.selected_location 
-        });
+      // Si no tenemos los valores necesarios, intentamos obtenerlos del estado anterior
+      if (!selectedService || !selectedLocation) {
+        // Devolver error y mantener los datos del staff seleccionado
         return {
           success: false,
           screen: "STAFF_SELECTION",
           data: {
             error: true,
-            error_message: "Faltan datos necesarios (servicio o ubicación)",
-            selected_staff: input.staff
+            error_message: "Se perdieron los datos de selección previa",
+            selected_staff: input.staff,
+            // Importante: devolver también la lista de staff disponible
+            available_staff: peluqueros
+              .filter(p => p.salonID === selectedLocation)
+              .map(p => ({
+                id: p.peluqueroID,
+                title: p.name
+              }))
           }
         };
       }
 
-      const servicioCompleto = this._getServicioCompleto(input.selected_service);
-      if (!servicioCompleto) {
-        console.error('Servicio no encontrado:', input.selected_service);
-        return {
-          success: false,
-          screen: "STAFF_SELECTION",
-          data: {
-            error: true,
-            error_message: "Servicio no encontrado",
-            selected_staff: input.staff
-          }
-        };
-      }
-
+      const servicioCompleto = this._getServicioCompleto(selectedService);
+      
       try {
         const diasDisponibles = await MongoDB.BuscarDisponibilidadSiguienteSemana(
           input.staff,
-          input.selected_location,
+          selectedLocation,
           servicioCompleto.nombre,
           servicioCompleto.especialidadID,
           servicioCompleto.duracion,
@@ -1163,8 +1163,8 @@ class FlowHandler {
               title: d.dia
             })),
             selected_staff: input.staff,
-            selected_service: input.selected_service,
-            selected_location: input.selected_location
+            selected_service: selectedService,
+            selected_location: selectedLocation
           }
         };
       } catch (error) {
@@ -1175,7 +1175,9 @@ class FlowHandler {
           data: {
             error: true,
             error_message: "Error al obtener fechas disponibles",
-            selected_staff: input.staff
+            selected_staff: input.staff,
+            selected_service: selectedService,
+            selected_location: selectedLocation
           }
         };
       }
