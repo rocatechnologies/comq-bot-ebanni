@@ -979,6 +979,17 @@ const ENDPOINT_TIMEOUT = 30000; // 30 segundos
  */
 class FlowHandler {
   constructor() {
+    this.ROUTING_MODEL = {
+      "WELCOME": ["SERVICE_AND_LOCATION"],
+      "SERVICE_AND_LOCATION": ["STAFF_SELECTION"],
+      "STAFF_SELECTION": ["DATE_SELECTION"],
+      "DATE_SELECTION": ["TIME_SELECTION"],
+      "TIME_SELECTION": ["CUSTOMER_DETAILS"],
+      "CUSTOMER_DETAILS": ["SUMMARY"],
+      "SUMMARY": ["CONFIRMATION"],
+      "CONFIRMATION": []
+    };
+
     this.currentState = {
       selectedService: null,
       selectedLocation: null,
@@ -989,87 +1000,101 @@ class FlowHandler {
     };
   }
 
-  // Utilidades para manejo de fechas
-  _formatDateForDB(date) {
-    return moment(date).format('MM/DD/YYYY');
-  }
+  async processRequest(decryptedBody) {
+    console.log("\n=== PROCESANDO SOLICITUD DE FLOW ===");
+    console.log("Datos recibidos:", decryptedBody);
 
-  _formatDateForClient(date) {
-    return moment(date).format('DD/MM/YYYY');
-  }
+    const action = decryptedBody.action || '';
+    const screen = decryptedBody.screen || '';
+    const data = decryptedBody.data || {};
 
-  async handleWELCOME(input, context) {
+    console.log("Valores extraídos:", { action, screen, data });
+
     try {
-      // Reiniciar el estado por si es un nuevo flujo
-      this.currentState = {
-        selectedService: null,
-        selectedLocation: null,
-        selectedStaff: null,
-        selectedDate: null,
-        selectedTime: null,
-        customerDetails: null
-      };
+      // Manejar casos especiales primero
+      if (action === "ping") {
+        return { data: { status: "active" } };
+      }
 
+      if (action === "INIT" || screen === "") {
+        return {
+          version: "3.0",
+          screen: "WELCOME",
+          data: {}
+        };
+      }
+
+      // Procesar la solicitud según la pantalla actual
+      const result = await this.handleNavigation(screen, {
+        action,
+        ...data
+      });
+
+      // Construir la respuesta en el formato esperado
       return {
-        success: true,
-        nextScreen: 'SERVICE_AND_LOCATION',
+        version: "3.0",
+        screen: result.nextScreen || screen,
         data: {
-          message: '¡Bienvenido! Por favor, seleccione un servicio y ubicación.'
+          ...result.data,
+          error: !result.success,
+          error_message: result.error
         }
       };
+
     } catch (error) {
-      console.error('Error en WELCOME:', error);
+      console.error("Error procesando request:", error);
       return {
-        success: false,
-        error: 'Error al iniciar el flujo'
+        version: "3.0",
+        screen: "WELCOME",
+        data: {
+          error: true,
+          error_message: error.message
+        }
       };
     }
   }
 
-  async handleSERVICE_AND_LOCATION(input, context) {
-    try {
-      if (input && input.service && input.location) {
-        // Validar que el servicio y la ubicación existan en la BD
-        // Aquí deberías agregar la lógica de validación específica
-        
-        this.currentState.selectedService = input.service;
-        this.currentState.selectedLocation = input.location;
-
-        return {
-          success: true,
-          nextScreen: 'STAFF_SELECTION',
-          data: {
-            service: input.service,
-            location: input.location
-          }
-        };
-      }
-
-      // Si no hay input, devolver los servicios y ubicaciones disponibles
-      return {
-        success: true,
-        data: {
-          services: await MongoDB.obtenerServicios(),
-          locations: await MongoDB.obtenerUbicaciones()
-        }
-      };
-    } catch (error) {
-      console.error('Error en SERVICE_AND_LOCATION:', error);
-      return {
-        success: false,
-        error: 'Error al procesar servicio y ubicación'
-      };
-    }
+  getServiciosDisponibles() {
+    return servicios.map(s => ({
+      id: s.servicioID,
+      title: s.servicio,
+      description: `Duración: ${s.duracion} minutos`,
+      duracion: s.duracion,
+      especialidadID: s.especialidadID
+    }));
   }
 
-  async handleSTAFF_SELECTION(input, context) {
-    try {
-      if (!this.currentState.selectedService || !this.currentState.selectedLocation) {
-        return {
-          success: false,
-          error: 'Debe seleccionar servicio y ubicación primero'
-        };
-      }
+  getCentrosDisponibles() {
+    return salones
+      .filter(s => ["Nervión Caballeros", "Nervión Señora", "Duque", "Sevilla Este"]
+        .includes(s.nombre))
+      .map(s => ({
+        id: s.salonID,
+        title: s.nombre,
+        description: s.address
+      }));
+  }
+
+  async handleWELCOME(input) {
+    if (input.action === "data_exchange") {
+      return {
+        success: true,
+        nextScreen: "SERVICE_AND_LOCATION",
+        data: {
+          services: this.getServiciosDisponibles(),
+          locations: this.getCentrosDisponibles(),
+          is_services_enabled: true,
+          is_location_enabled: true
+        }
+      };
+    }
+    return { success: true, data: {} };
+  }
+
+  async handleSERVICE_AND_LOCATION(input) {
+    if (input.action === "data_exchange" && input.service && input.location) {
+      this.currentState.selectedService = servicios.find(s => s.servicioID === input.service);
+      this.currentState.selectedLocation = input.location;
 
       const peluquerosDisponibles = await MongoDB.ListarPeluquerosDisponibles(
         moment(),
@@ -1079,279 +1104,117 @@ class FlowHandler {
         this.currentState.selectedService.duracion
       );
 
-      if (input && input.staffId && peluquerosDisponibles.includes(input.staffId)) {
-        this.currentState.selectedStaff = input.staffId;
-        return {
-          success: true,
-          nextScreen: 'DATE_SELECTION',
-          data: peluquerosDisponibles
-        };
-      }
-
       return {
         success: true,
-        data: peluquerosDisponibles
-      };
-    } catch (error) {
-      console.error('Error en STAFF_SELECTION:', error);
-      return {
-        success: false,
-        error: 'Error al obtener peluqueros disponibles'
-      };
-    }
-  }
-
-  async handleDATE_SELECTION(input, context) {
-    try {
-      if (!this.currentState.selectedStaff) {
-        return {
-          success: false,
-          error: 'Debe seleccionar un peluquero primero'
-        };
-      }
-
-      const diasDisponibles = await MongoDB.BuscarDisponibilidadSiguienteSemana(
-        this.currentState.selectedStaff,
-        this.currentState.selectedLocation,
-        this.currentState.selectedService.nombre,
-        this.currentState.selectedService.especialidadID,
-        this.currentState.selectedService.duracion,
-        this._formatDateForDB(moment())
-      );
-
-      if (input && input.date) {
-        const fechaSeleccionada = moment(input.date, 'DD/MM/YYYY');
-        const diaDisponible = diasDisponibles.find(d => 
-          moment(d.dia, 'DD/MM/YYYY').isSame(fechaSeleccionada, 'day')
-        );
-
-        if (diaDisponible) {
-          this.currentState.selectedDate = fechaSeleccionada;
-          return {
-            success: true,
-            nextScreen: 'TIME_SELECTION',
-            data: {
-              diasDisponibles: diasDisponibles.map(d => ({
-                ...d,
-                dia: this._formatDateForClient(d.dia)
-              }))
-            }
-          };
-        }
-      }
-
-      return {
-        success: true,
+        nextScreen: "STAFF_SELECTION",
         data: {
-          diasDisponibles: diasDisponibles.map(d => ({
-            ...d,
-            dia: this._formatDateForClient(d.dia)
-          }))
+          available_staff: peluquerosDisponibles.map(pId => {
+            const peluquero = peluqueros.find(p => p.peluqueroID === pId);
+            return {
+              id: pId,
+              title: peluquero?.name || 'Desconocido'
+            };
+          }),
+          is_staff_enabled: true,
+          selected_service: input.service,
+          selected_location: input.location
         }
       };
-    } catch (error) {
-      console.error('Error en DATE_SELECTION:', error);
+    }
+    return { success: true, data: {} };
+  }
+
+  async handleSTAFF_SELECTION(input) {
+    if (!input.staff) {
       return {
         success: false,
-        error: 'Error al obtener fechas disponibles'
+        error: 'Debe seleccionar un peluquero'
       };
+    }
+
+    this.currentState.selectedStaff = input.staff;
+    const diasDisponibles = await MongoDB.BuscarDisponibilidadSiguienteSemana(
+      input.staff,
+      this.currentState.selectedLocation,
+      this.currentState.selectedService.nombre,
+      this.currentState.selectedService.especialidadID,
+      this.currentState.selectedService.duracion,
+      moment().format('YYYY-MM-DD')
+    );
+
+    return {
+      success: true,
+      nextScreen: "DATE_SELECTION",
+      data: {
+        available_dates: diasDisponibles.map(d => ({
+          id: moment(d.dia, 'DD/MM/YYYY').format('MM/DD/YYYY'),
+          title: d.dia
+        })),
+        selected_staff: input.staff
+      }
+    };
+  }
+
+  // ... resto de handlers ...
+
+  async handleNavigation(currentScreen, input) {
+    switch (currentScreen) {
+      case "WELCOME":
+        return await this.handleWELCOME(input);
+      case "SERVICE_AND_LOCATION":
+        return await this.handleSERVICE_AND_LOCATION(input);
+      case "STAFF_SELECTION":
+        return await this.handleSTAFF_SELECTION(input);
+      // ... otros casos ...
+      default:
+        throw new Error(`Pantalla no soportada: ${currentScreen}`);
     }
   }
 
-  async handleTIME_SELECTION(input, context) {
+  async confirmAppointment(appointmentData) {
     try {
-      if (!this.currentState.selectedDate) {
-        return {
-          success: false,
-          error: 'Debe seleccionar una fecha primero'
-        };
-      }
+      const {
+        service_id,
+        location_id,
+        date,
+        time,
+        staff_id,
+        customer_name,
+        customer_phone
+      } = appointmentData;
 
-      const horariosDisponibles = await MongoDB.BuscarHorariosDisponiblesPeluquero(
-        this.currentState.selectedStaff,
-        this.currentState.selectedDate,
-        this.currentState.selectedService.duracion,
-        this.currentState.selectedLocation
-      );
+      const horaInicio = moment(`${date} ${time}`);
+      const servicio = servicios.find(s => s.servicioID === service_id);
+      const horaFin = horaInicio.clone().add(servicio?.duracion || 30, 'minutes');
 
-      if (input && input.time) {
-        if (horariosDisponibles.includes(input.time)) {
-          this.currentState.selectedTime = input.time;
-          return {
-            success: true,
-            nextScreen: 'CUSTOMER_DETAILS',
-            data: { horariosDisponibles }
-          };
-        } else {
-          return {
-            success: false,
-            error: 'Hora no disponible',
-            data: { horariosDisponibles }
-          };
-        }
-      }
-
-      return {
-        success: true,
-        data: { horariosDisponibles }
-      };
-    } catch (error) {
-      console.error('Error en TIME_SELECTION:', error);
-      return {
-        success: false,
-        error: 'Error al obtener horarios disponibles'
-      };
-    }
-  }
-
-  async handleCUSTOMER_DETAILS(input, context) {
-    try {
-      if (!this.currentState.selectedTime) {
-        return {
-          success: false,
-          error: 'Debe seleccionar una hora primero'
-        };
-      }
-
-      if (input && input.customerDetails) {
-        // Validar los detalles del cliente
-        const { nombre, telefono, email } = input.customerDetails;
-        if (!nombre || !telefono) {
-          return {
-            success: false,
-            error: 'Nombre y teléfono son obligatorios'
-          };
-        }
-
-        this.currentState.customerDetails = input.customerDetails;
-        return {
-          success: true,
-          nextScreen: 'SUMMARY',
-          data: input.customerDetails
-        };
-      }
-
-      return {
-        success: true,
-        data: {
-          message: 'Por favor, ingrese sus datos de contacto'
-        }
-      };
-    } catch (error) {
-      console.error('Error en CUSTOMER_DETAILS:', error);
-      return {
-        success: false,
-        error: 'Error al procesar datos del cliente'
-      };
-    }
-  }
-
-  async handleSUMMARY(input, context) {
-    try {
-      if (!this.currentState.customerDetails) {
-        return {
-          success: false,
-          error: 'Información incompleta'
-        };
-      }
-
-      const resumen = {
-        servicio: this.currentState.selectedService,
-        ubicacion: this.currentState.selectedLocation,
-        peluquero: this.currentState.selectedStaff,
-        fecha: this._formatDateForClient(this.currentState.selectedDate),
-        hora: this.currentState.selectedTime,
-        cliente: this.currentState.customerDetails
-      };
-
-      if (input && input.confirmed === true) {
-        return {
-          success: true,
-          nextScreen: 'CONFIRMATION',
-          data: resumen
-        };
-      }
-
-      return {
-        success: true,
-        data: resumen
-      };
-    } catch (error) {
-      console.error('Error en SUMMARY:', error);
-      return {
-        success: false,
-        error: 'Error al generar resumen'
-      };
-    }
-  }
-
-  async handleCONFIRMATION(input, context) {
-    try {
-      // Crear el evento en la base de datos
-      const horaInicio = moment(`${this._formatDateForDB(this.currentState.selectedDate)} ${this.currentState.selectedTime}`, 'MM/DD/YYYY HH:mm');
-      const horaFin = horaInicio.clone().add(this.currentState.selectedService.duracion, 'minutes');
-
-      const eventoGuardado = await MongoDB.GuardarEventoEnBD({
-        nombre: this.currentState.customerDetails.nombre,
-        from: this.currentState.customerDetails.telefono,
-        servicioID: this.currentState.selectedService.id,
+      const saved = await MongoDB.GuardarEventoEnBD({
+        nombre: customer_name,
+        from: customer_phone,
+        servicioID: service_id,
         peluquero: {
-          peluqueroID: this.currentState.selectedStaff
+          peluqueroID: staff_id
         },
-        salonID: this.currentState.selectedLocation
+        salonID: location_id
       }, horaInicio, horaFin);
 
-      if (eventoGuardado) {
-        return {
-          success: true,
-          data: {
-            message: '¡Su cita ha sido confirmada!',
-            detalles: {
-              fecha: this._formatDateForClient(this.currentState.selectedDate),
-              hora: this.currentState.selectedTime,
-              servicio: this.currentState.selectedService.nombre,
-              peluquero: this.currentState.selectedStaff
-            }
-          }
-        };
-      } else {
-        throw new Error('No se pudo guardar la cita');
+      if (saved) {
+        await statisticsManager.incrementConfirmedAppointments();
+        await LogSuccess(
+          customer_phone,
+          'Cita guardada desde flow',
+          location_id,
+          await MongoDB.ObtenerSalonPorSalonID(location_id)?.nombre
+        );
+        return true;
       }
+      return false;
     } catch (error) {
-      console.error('Error en CONFIRMATION:', error);
-      return {
-        success: false,
-        error: 'Error al confirmar la cita'
-      };
-    }
-  }
-
-  async handleNavigation(currentScreen, input, context) {
-    switch (currentScreen) {
-      case 'WELCOME':
-        return await this.handleWELCOME(input, context);
-      case 'SERVICE_AND_LOCATION':
-        return await this.handleSERVICE_AND_LOCATION(input, context);
-      case 'STAFF_SELECTION':
-        return await this.handleSTAFF_SELECTION(input, context);
-      case 'DATE_SELECTION':
-        return await this.handleDATE_SELECTION(input, context);
-      case 'TIME_SELECTION':
-        return await this.handleTIME_SELECTION(input, context);
-      case 'CUSTOMER_DETAILS':
-        return await this.handleCUSTOMER_DETAILS(input, context);
-      case 'SUMMARY':
-        return await this.handleSUMMARY(input, context);
-      case 'CONFIRMATION':
-        return await this.handleCONFIRMATION(input, context);
-      default:
-        return {
-          success: false,
-          error: 'Pantalla no reconocida'
-        };
+      console.error('Error en confirmAppointment:', error);
+      throw error;
     }
   }
 }
+
 
 app.post("/flow/data", async (req, res) => {
   console.log("\n=== INICIO PROCESAMIENTO FLOW DATA ===");
@@ -1365,26 +1228,27 @@ app.post("/flow/data", async (req, res) => {
     const { decryptedBody } = decryptResult;
     aesKeyBuffer = decryptResult.aesKeyBuffer;
     initialVectorBuffer = decryptResult.initialVectorBuffer;
-
+    
     console.log("Cuerpo descifrado:", JSON.stringify(decryptedBody, null, 2));
-
+    
     // 2. Procesar la solicitud usando el FlowHandler
     const flowHandler = new FlowHandler();
     const response = await flowHandler.processRequest(decryptedBody);
+    
     console.log('Respuesta a enviar:', JSON.stringify(response, null, 2));
-
+    
     // 3. Encriptar y enviar respuesta
     const encryptedResponse = encryptResponse(response, aesKeyBuffer, initialVectorBuffer);
     res.send(encryptedResponse);
-
   } catch (error) {
     console.error('Error en flow/data:', error);
     
     const errorResponse = {
-      success: false,
-      error: {
-        message: error.message || 'Error interno del servidor',
-        code: error.statusCode || 500
+      version: "3.0",
+      screen: "WELCOME",
+      data: {
+        error: true,
+        error_message: error.message || 'Error interno del servidor'
       }
     };
     
@@ -1399,64 +1263,30 @@ app.post("/flow/data", async (req, res) => {
 });
 
 
+
 app.post("/flow/confirm-appointment", async (req, res) => {
   try {
-      const {
-          service_id,
-          location_id,
-          date,
-          time,
-          staff_id,
-          customer_name,
-          customer_phone
-      } = req.body;
-
-      // Crear un objeto de conversación temporal para usar tus funciones existentes
-      const tempConversation = new Conversation();
-      tempConversation.from = customer_phone;
-      tempConversation.nombre = customer_name;
-      tempConversation.salonID = location_id;
-      tempConversation.nombreServicio = service_id;
-      tempConversation.peluquero = peluqueros.find(p => p.peluqueroID === staff_id);
-      
-      const horaInicio = moment(`${date} ${time}`);
-      const horaFin = horaInicio.clone().add(
-          servicios.find(s => s.servicioID === service_id)?.duracion || 30,
-          'minutes'
-      );
-
-      // Usar tu función existente para guardar la cita
-      const saved = await MongoDB.GuardarEventoEnBD(
-          tempConversation,
-          horaInicio.format(),
-          horaFin.format()
-      );
-
-      if (saved) {
-          await statisticsManager.incrementConfirmedAppointments();
-          await LogSuccess(
-              customer_phone,
-              'Cita guardada desde flow',
-              location_id,
-              await MongoDB.ObtenerSalonPorSalonID(location_id)?.nombre
-          );
-          
-          res.json({ success: true });
-      } else {
-          throw new Error('No se pudo guardar la cita');
-      }
-
+    const flowHandler = new FlowHandler();
+    const confirmed = await flowHandler.confirmAppointment(req.body);
+    
+    if (confirmed) {
+      res.json({ success: true });
+    } else {
+      throw new Error('No se pudo guardar la cita');
+    }
   } catch (error) {
-      console.error('Error al confirmar la cita:', error);
-      await statisticsManager.incrementFailedOperations();
-      await LogError(
-          req.body?.customer_phone || 'unknown',
-          'Error al confirmar cita desde flow',
-          error,
-          req.body?.location_id,
-          await MongoDB.ObtenerSalonPorSalonID(req.body?.location_id)?.nombre
-      );
-      res.status(500).json({ success: false });
+    console.error('Error al confirmar la cita:', error);
+    
+    await statisticsManager.incrementFailedOperations();
+    await LogError(
+      req.body?.customer_phone || 'unknown',
+      'Error al confirmar cita desde flow',
+      error,
+      req.body?.location_id,
+      await MongoDB.ObtenerSalonPorSalonID(req.body?.location_id)?.nombre
+    );
+    
+    res.status(500).json({ success: false });
   }
 });
 
