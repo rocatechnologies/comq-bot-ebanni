@@ -1465,7 +1465,7 @@ app.post("/flow/data", async (req, res) => {
   try {
     // 1. Descifrar la petición
     const decryptResult = decryptRequest(req.body);
-    conlose.log("decryptResult:", decryptResult);
+    console.log("decryptResult:", decryptResult);
     const { decryptedBody } = decryptResult;
     aesKeyBuffer = decryptResult.aesKeyBuffer;
     initialVectorBuffer = decryptResult.initialVectorBuffer;
