@@ -838,41 +838,41 @@ class FlowEndpointException extends Error {
 }
 
 const decryptRequest = (body) => {
-  console.log('==========================================');
+  //console.log('==========================================');
   console.log('INICIANDO PROCESO DE DESCIFRADO');
-  console.log('------------------------------------------');
+  //console.log('------------------------------------------');
   
   // Log de variables de entorno
-  console.log('Verificando configuración:');
-  console.log('PRIVATE_KEY existe:', !!process.env.PRIVATE_KEY);
-  console.log('PASSPHRASE existe:', !!process.env.PASSPHRASE);
-  console.log('------------------------------------------');
+  //console.log('Verificando configuración:');
+  //console.log('PRIVATE_KEY existe:', !!process.env.PRIVATE_KEY);
+  //console.log('PASSPHRASE existe:', !!process.env.PASSPHRASE);
+  //console.log('------------------------------------------');
 
   const { encrypted_aes_key, encrypted_flow_data, initial_vector } = body;
   
   // Log de datos recibidos
-  console.log('Datos recibidos:');
-  console.log('- encrypted_aes_key presente:', !!encrypted_aes_key);
-  console.log('- encrypted_flow_data presente:', !!encrypted_flow_data);
-  console.log('- initial_vector presente:', !!initial_vector);
-  console.log('------------------------------------------');
+  //console.log('Datos recibidos:');
+  //console.log('- encrypted_aes_key presente:', !!encrypted_aes_key);
+  //.log('- encrypted_flow_data presente:', !!encrypted_flow_data);
+  //console.log('- initial_vector presente:', !!initial_vector);
+  //console.log('------------------------------------------');
 
   // Formateo de la clave privada
   const privateKeyString = process.env.PRIVATE_KEY.replace(/\\n/g, '\n');
-  console.log('Clave privada formateada (primeros 50 caracteres):');
-  console.log(privateKeyString.substring(0, 50) + '...');
-  console.log('------------------------------------------');
+  //console.log('Clave privada formateada (primeros 50 caracteres):');
+  //console.log(privateKeyString.substring(0, 50) + '...');
+  //console.log('------------------------------------------');
   
   try {
-      console.log('Creando objeto de clave privada...');
+      //console.log('Creando objeto de clave privada...');
       const privateKey = crypto.createPrivateKey({ 
           key: privateKeyString, 
           passphrase: process.env.PASSPHRASE 
       });
-      console.log('Clave privada creada exitosamente');
-      console.log('------------------------------------------');
+      //console.log('Clave privada creada exitosamente');
+     // console.log('------------------------------------------');
 
-      console.log('Iniciando descifrado de clave AES...');
+      //console.log('Iniciando descifrado de clave AES...');
       const decryptedAesKey = crypto.privateDecrypt(
           {
               key: privateKey,
@@ -881,17 +881,17 @@ const decryptRequest = (body) => {
           },
           Buffer.from(encrypted_aes_key, "base64")
       );
-      console.log('Clave AES descifrada exitosamente');
-      console.log('------------------------------------------');
+      //console.log('Clave AES descifrada exitosamente');
+      //console.log('------------------------------------------');
 
-      console.log('Preparando descifrado de datos del flow...');
+      //console.log('Preparando descifrado de datos del flow...');
       const flowDataBuffer = Buffer.from(encrypted_flow_data, "base64");
       const initialVectorBuffer = Buffer.from(initial_vector, "base64");
       const TAG_LENGTH = 16;
       const encrypted_flow_data_body = flowDataBuffer.subarray(0, -TAG_LENGTH);
       const encrypted_flow_data_tag = flowDataBuffer.subarray(-TAG_LENGTH);
 
-      console.log('Creando decipher con AES-128-GCM...');
+      //console.log('Creando decipher con AES-128-GCM...');
       const decipher = crypto.createDecipheriv(
           "aes-128-gcm",
           decryptedAesKey,
@@ -899,18 +899,18 @@ const decryptRequest = (body) => {
       );
       decipher.setAuthTag(encrypted_flow_data_tag);
 
-      console.log('Descifrando datos del flow...');
+      //console.log('Descifrando datos del flow...');
       const decryptedJSONString = Buffer.concat([
           decipher.update(encrypted_flow_data_body),
           decipher.final(),
       ]).toString("utf-8");
-      console.log('Datos del flow descifrados exitosamente');
-      console.log('Datos descifrados:', decryptedJSONString);
-      console.log('------------------------------------------');
+      //console.log('Datos del flow descifrados exitosamente');
+      //console.log('Datos descifrados:', decryptedJSONString);
+      //console.log('------------------------------------------');
 
       const decryptedBody = JSON.parse(decryptedJSONString);
-      console.log('Objeto JSON parseado exitosamente:', decryptedBody);
-      console.log('==========================================');
+      //console.log('Objeto JSON parseado exitosamente:', decryptedBody);
+      //console.log('==========================================');
 
       return {
           decryptedBody,
@@ -943,7 +943,7 @@ const encryptResponse = (response, aesKeyBuffer, initialVectorBuffer) => {
       for (const pair of initialVectorBuffer.entries()) {
           flipped_iv.push(~pair[1]);
       }
-      console.log('Vector inicial invertido creado');
+      //console.log('Vector inicial invertido creado');
 
       // Cifrar los datos de respuesta
       const cipher = crypto.createCipheriv(
@@ -951,7 +951,7 @@ const encryptResponse = (response, aesKeyBuffer, initialVectorBuffer) => {
           aesKeyBuffer,
           Buffer.from(flipped_iv)
       );
-      console.log('Cipher creado correctamente');
+      //console.log('Cipher creado correctamente');
 
       const encryptedResponse = Buffer.concat([
           cipher.update(JSON.stringify(response), "utf-8"),
@@ -959,7 +959,7 @@ const encryptResponse = (response, aesKeyBuffer, initialVectorBuffer) => {
           cipher.getAuthTag(),
       ]).toString("base64");
       
-      console.log('Respuesta encriptada exitosamente');
+      //console.log('Respuesta encriptada exitosamente');
       return encryptedResponse;
   } catch (error) {
       console.error('Error en encryptResponse:', error);
@@ -1392,7 +1392,7 @@ class FlowHandler {
 
 app.post("/flow/data", async (req, res) => {
   console.log("\n=== INICIO PROCESAMIENTO FLOW DATA ===");
-  console.log('Request body:', JSON.stringify(req.body, null, 2));
+  //console.log('Request body:', JSON.stringify(req.body, null, 2));
   
   let aesKeyBuffer, initialVectorBuffer;
   
@@ -1403,7 +1403,7 @@ app.post("/flow/data", async (req, res) => {
     aesKeyBuffer = decryptResult.aesKeyBuffer;
     initialVectorBuffer = decryptResult.initialVectorBuffer;
     
-    console.log("Cuerpo descifrado:", JSON.stringify(decryptedBody, null, 2));
+    //console.log("Cuerpo descifrado:", JSON.stringify(decryptedBody, null, 2));
     
     // 2. Procesar la solicitud usando el FlowHandler
     const flowHandler = new FlowHandler();
