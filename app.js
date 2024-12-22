@@ -1122,7 +1122,7 @@ class FlowHandler {
   }
 
   async handleSERVICE_AND_LOCATION(input) {
-    const responseData;
+    const responseData = {};
     console.log("input.acton:", input.action);
     console.log("input.service:", input.service);
     console.log("input.location:", input.location);
