@@ -977,6 +977,8 @@ const ENDPOINT_TIMEOUT = 30000; // 30 segundos
 /**
  * Clase que maneja la lógica de pantallas del Flow
  */
+const moment = require('moment-timezone');
+
 class FlowHandler {
   constructor() {
     this.ROUTING_MODEL = {
@@ -1068,7 +1070,7 @@ class FlowHandler {
 
   getCentrosDisponibles() {
     return salones
-      .filter(s => ["Nervión Caballeros", "Nervión Señora", "Duque", "Sevilla Este"]
+      .filter(s => ["Nervión Caballeros", "Nervión Señoras", "Duque", "Sevilla Este"]
         .includes(s.nombre))
       .map(s => ({
         id: s.salonID,
@@ -1099,8 +1101,27 @@ class FlowHandler {
       this.currentState.selectedService = servicioCompleto;
       this.currentState.selectedLocation = input.location;
 
+      // Si solo necesitamos el staff disponible, usamos un enfoque más simple
+      if (input.get_data && input.get_data.includes('available_staff')) {
+        const staffDelCentro = peluqueros.filter(p => p.salonID === input.location);
+        return {
+          success: true,
+          nextScreen: "STAFF_SELECTION",
+          data: {
+            available_staff: staffDelCentro.map(p => ({
+              id: p.peluqueroID,
+              title: p.name
+            })),
+            is_staff_enabled: true,
+            selected_service: input.service,
+            selected_location: input.location
+          }
+        };
+      }
+
+      // Si necesitamos verificar disponibilidad real, usamos ListarPeluquerosDisponibles
       const peluquerosDisponibles = await MongoDB.ListarPeluquerosDisponibles(
-        moment(),
+        moment().set({hour: 10, minute: 0}), // Usamos la hora de apertura
         this.currentState.selectedLocation,
         this.currentState.selectedService.nombre,
         this.currentState.selectedService.especialidadID,
@@ -1217,7 +1238,6 @@ class FlowHandler {
     }
   }
 }
-
 
 app.post("/flow/data", async (req, res) => {
   console.log("\n=== INICIO PROCESAMIENTO FLOW DATA ===");
