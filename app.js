@@ -1205,19 +1205,29 @@ class FlowHandler {
                 locationId
             });
 
-            const fechasDisponibles = await this.getFechasDisponibles(
-                input.staff,
-                serviceId,
-                locationId
-            );
+            const servicioCompleto = this._getServicioCompleto(serviceId);
+            if (!servicioCompleto) {
+                throw new Error("Servicio no encontrado");
+            }
 
-            console.log("LN 1214 fechasDisponibles:", fechasDisponibles);
+            // Usar la nueva función ObtenerDiasDisponiblesSemana
+            const diasDisponibles = await MongoDB.ObtenerDiasDisponiblesSemana(
+                input.staff,
+                locationId,
+                servicioCompleto.duracion,
+                moment().format('YYYY-MM-DD')
+            );
 
             return {
                 success: true,
                 nextScreen: "DATE_SELECTION",
                 data: {
-                    available_dates: fechasDisponibles,
+                    available_dates: diasDisponibles.map(d => ({
+                        id: moment(d.dia, 'DD/MM/YYYY').format('YYYY-MM-DD'),
+                        title: d.dia,
+                        has_availability: d.tiene_disponibilidad,
+                        available_hours: d.horarios.length
+                    })),
                     is_date_enabled: true,
                     selected_staff: input.staff,
                     selected_service: serviceId,
@@ -1268,60 +1278,51 @@ async handleDATE_SELECTION(input) {
   console.log("Input recibido:", input);
 
   if (input.action === "data_exchange") {
-      try {
-          const servicioCompleto = this._getServicioCompleto(input.selected_service);
-          if (!servicioCompleto) {
-              throw new Error("Servicio no encontrado");
-          }
-
-          const diasDisponibles = await MongoDB.BuscarDisponibilidadSiguienteSemana(
-              input.selected_staff,
-              input.selected_location,
-              servicioCompleto.nombre,
-              servicioCompleto.especialidadID,
-              servicioCompleto.duracion,
-              moment().format('YYYY-MM-DD')
-          );
-
-          console.log("Días disponibles obtenidos:", diasDisponibles);
-
-          // Transformamos los datos manteniendo la información de disponibilidad
-          const available_dates = diasDisponibles.map(d => ({
-              id: moment(d.dia, 'DD/MM/YYYY').format('YYYY-MM-DD'),
-              title: d.dia,
-              has_availability: d.tiene_disponibilidad,
-              available_hours: d.horarios.length,
-              // Opcional: incluir los horarios si los necesitas después
-              hours: d.horarios
-          }));
-
-          console.log("Fechas procesadas:", available_dates);
-
-          return {
-              success: true,
-              nextScreen: "DATE_SELECTION",
-              data: {
-                  available_dates,
-                  is_date_enabled: true,
-                  selected_staff: input.selected_staff,
-                  selected_service: input.selected_service,
-                  selected_location: input.selected_location,
-                  error: false
-              }
-          };
-      } catch (error) {
-          console.error('Error al obtener fechas disponibles:', error);
-          return {
-              success: false,
-              data: {
-                  error: true,
-                  error_message: "Error al obtener fechas disponibles: " + error.message,
-                  selected_staff: input.selected_staff,
-                  selected_service: input.selected_service,
-                  selected_location: input.selected_location
-              }
-          };
+    try {
+      const servicioCompleto = this._getServicioCompleto(input.selected_service);
+      if (!servicioCompleto) {
+          throw new Error("Servicio no encontrado");
       }
+
+      // Usar directamente la nueva función
+      const diasDisponibles = await MongoDB.ObtenerDiasDisponiblesSemana(
+          input.selected_staff,
+          input.selected_location,
+          servicioCompleto.duracion,
+          moment().format('YYYY-MM-DD')
+      );
+
+      console.log("Días disponibles obtenidos:", diasDisponibles);
+
+      return {
+          success: true,
+          nextScreen: "DATE_SELECTION",
+          data: {
+              available_dates: diasDisponibles.map(d => ({
+                  id: moment(d.dia, 'DD/MM/YYYY').format('YYYY-MM-DD'),
+                  title: d.dia,
+                  has_availability: d.tiene_disponibilidad,
+                  available_hours: d.horarios.length
+              })),
+              is_date_enabled: true,
+              selected_staff: input.selected_staff,
+              selected_service: input.selected_service,
+              selected_location: input.selected_location
+          }
+      };
+  } catch (error) {
+      console.error('Error al obtener fechas disponibles:', error);
+      return {
+          success: false,
+          data: {
+              error: true,
+              error_message: "Error al obtener fechas disponibles: " + error.message,
+              selected_staff: input.selected_staff,
+              selected_service: input.selected_service,
+              selected_location: input.selected_location
+          }
+      };
+  }
   }
 
   // Si hay una fecha seleccionada
@@ -4334,6 +4335,112 @@ static async BuscarDisponibilidadSiguienteSemana(
       throw ex;
   }
 }
+
+static async ObtenerDiasDisponiblesSemana(
+  peluqueroID,
+  salonID,
+  duracionServicio,
+  fechaInicio,
+  diasMaximos = 7
+) {
+  try {
+      // Convertir fechaInicio a moment si viene como string
+      const fechaBase = moment(fechaInicio).startOf('day');
+      
+      // Consulta a MongoDB para obtener todas las citas de la semana de una sola vez
+      const fechaFin = fechaBase.clone().add(diasMaximos, 'days').endOf('day');
+      
+      // Obtener la configuración de horarios del salón
+      const configuracionHorarios = {
+          apertura: '10:00',
+          cierre: '22:00',
+          intervaloMinutos: 30
+      };
+
+      // Obtener todas las citas del período de una sola vez
+      const citasSemana = await MongoDB.ObtenerCitasPeriodo(
+          peluqueroID,
+          salonID,
+          fechaBase.toDate(),
+          fechaFin.toDate()
+      );
+
+      // Procesar cada día
+      const diasDisponibles = [];
+      for (let i = 0; i <= diasMaximos; i++) {
+          const fecha = fechaBase.clone().add(i, 'days');
+          
+          // Saltamos domingos
+          if (fecha.day() === 0) continue;
+
+          // Filtramos las citas para este día específico
+          const citasDelDia = citasSemana.filter(cita => 
+              moment(cita.fecha).isSame(fecha, 'day')
+          );
+
+          // Calculamos los horarios disponibles
+          const horariosDisponibles = this.CalcularHorariosDisponiblesDia(
+              fecha,
+              citasDelDia,
+              configuracionHorarios,
+              duracionServicio
+          );
+
+          diasDisponibles.push({
+              dia: fecha.format('DD/MM/YYYY'),
+              horarios: horariosDisponibles,
+              tiene_disponibilidad: horariosDisponibles.length > 0
+          });
+      }
+
+      return diasDisponibles;
+
+  } catch (error) {
+      console.error('Error al obtener días disponibles:', error);
+      throw error;
+  }
+}
+
+static CalcularHorariosDisponiblesDia(fecha, citasDelDia, config, duracionServicio) {
+  const horarios = [];
+  const horaApertura = moment(fecha).set({
+      hour: parseInt(config.apertura.split(':')[0]),
+      minute: parseInt(config.apertura.split(':')[1])
+  });
+  const horaCierre = moment(fecha).set({
+      hour: parseInt(config.cierre.split(':')[0]),
+      minute: parseInt(config.cierre.split(':')[1])
+  });
+
+  // Convertir duracionServicio a minutos si viene como string (e.g., "30 minutos")
+  const duracionMinutos = parseInt(duracionServicio);
+
+  let horaActual = horaApertura.clone();
+  while (horaActual.isBefore(horaCierre)) {
+      let disponible = true;
+
+      // Verificar si hay alguna cita que se solape con este horario
+      for (const cita of citasDelDia) {
+          const inicioCita = moment(cita.horaInicio);
+          const finCita = moment(cita.horaFin);
+
+          if (horaActual.isBetween(inicioCita, finCita, null, '[)') ||
+              moment(horaActual).add(duracionMinutos, 'minutes').isBetween(inicioCita, finCita, null, '()')) {
+              disponible = false;
+              break;
+          }
+      }
+
+      if (disponible) {
+          horarios.push(horaActual.format('HH:mm'));
+      }
+
+      horaActual.add(config.intervaloMinutos, 'minutes');
+  }
+
+  return horarios;
+}
+
 }
 
 class WhatsApp {
