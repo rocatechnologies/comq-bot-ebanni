@@ -1155,6 +1155,10 @@ class FlowHandler {
       const servicioCompleto = this._getServicioCompleto(input.service);
       const staffDelCentro = peluqueros.filter(p => p.salonID === input.location);
 
+      // Guardar los datos seleccionados
+      this.lastSelectedService = input.service;
+      this.lastSelectedLocation = input.location;
+
       // Guarda estos valores en los datos que se devuelven
       responseData = {
         available_staff: staffDelCentro.map(p => ({
@@ -1185,15 +1189,12 @@ class FlowHandler {
 
     // Si es una solicitud para obtener fechas disponibles
     if (input.action === "data_exchange" && input.staff && input.get_data?.includes('available_dates')) {
+        const serviceId = this.lastSelectedService;  // Usar datos guardados
+        const locationId = this.lastSelectedLocation;
         const staffMember = peluqueros.find(p => p.peluqueroID === input.staff);
         if (!staffMember) {
             throw new Error("Staff no encontrado");
         }
-
-        // Intentamos obtener los valores de diferentes fuentes en orden de prioridad
-        const serviceId = this.lastSelectedService;  // Podríamos mantener esto en la clase
-        
-        const locationId = this.lastSelectedLocation;
 
         if (!serviceId || !locationId) {
             throw new Error("No se encontraron datos de servicio o ubicación");
