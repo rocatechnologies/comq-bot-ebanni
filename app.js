@@ -4283,51 +4283,57 @@ static async BuscarHorariosConPeluquerosDisponibles(fecha, salonID, nombreServic
   return horariosDisponiblesConPeluquero;
 }
 
-  static async BuscarDisponibilidadSiguienteSemana(
-    peluqueroID,
-    salonID,
-    nombreServicio,
-    especialidadID,
-    duracionServicio,
-    fechaInicio,
-    diasMaximos = 7
-  ) {
-    const diasDisponibles = [];
-    const fechaBase = moment(fechaInicio, "YYYY-MM-DD");
-
-    try {
+static async BuscarDisponibilidadSiguienteSemana(
+  peluqueroID,
+  salonID,
+  nombreServicio,
+  especialidadID,
+  duracionServicio,
+  fechaInicio,
+  diasMaximos = 7  // Reducir a 5 días inicialmente
+) {
+  const diasDisponibles = [];
+  const fechaBase = moment(fechaInicio, "YYYY-MM-DD");
+  
+  try {
+      // Crear un array de promesas para todas las consultas
+      const promesas = [];
       for (let i = 0; i <= diasMaximos; i++) {
-        const fecha = fechaBase.clone().add(i, "days");
-
-        console.log(`Verificando disponibilidad para ${fecha.format('DD/MM/YYYY')}`);
-        const horariosDisponibles =
-          await MongoDB.BuscarHorariosDisponiblesPeluquero(
-            peluqueroID,
-            fecha,
-            duracionServicio,
-            salonID
-          );
-
-        // Siempre añadimos el día, incluso si no hay horarios
-        diasDisponibles.push({
-          dia: fecha.format("DD/MM/YYYY"),
-          horarios: horariosDisponibles || [],
-          tiene_disponibilidad: (horariosDisponibles || []).length > 0
-        });
-        console.log(`${fecha.format('DD/MM/YYYY')}: ${horariosDisponibles.length} horarios disponibles`);
+          const fecha = fechaBase.clone().add(i, "days");
+          if (fecha.day() !== 0) { // Excluir domingos
+              promesas.push(
+                  MongoDB.BuscarHorariosDisponiblesPeluquero(
+                      peluqueroID,
+                      fecha,
+                      duracionServicio,
+                      salonID
+                  ).then(horarios => ({
+                      fecha,
+                      horarios
+                  }))
+              );
+          }
       }
-      console.log(`Total de días procesados: ${diasDisponibles.length}`);
-      return diasDisponibles;
-    } catch (ex) {
-      DoLog(
-        `Error al buscar días con disponibilidad en los próximos días: ${ex}`,
-        Log.Error
-      );
-      throw ex;
-    }
 
-    return diasDisponibles;
+      // Ejecutar todas las consultas en paralelo
+      const resultados = await Promise.all(promesas);
+
+      // Procesar resultados
+      resultados.forEach(({ fecha, horarios }) => {
+          diasDisponibles.push({
+              dia: fecha.format("DD/MM/YYYY"),
+              horarios: horarios || [],
+              tiene_disponibilidad: (horarios || []).length > 0
+          });
+      });
+
+      return diasDisponibles;
+
+  } catch (ex) {
+      console.error(`Error al buscar días con disponibilidad: ${ex}`);
+      throw ex;
   }
+}
 }
 
 class WhatsApp {
