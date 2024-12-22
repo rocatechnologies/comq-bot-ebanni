@@ -937,7 +937,7 @@ const decryptRequest = (body) => {
 
 const encryptResponse = (response, aesKeyBuffer, initialVectorBuffer) => {
   console.log('Iniciando encriptación de respuesta...');
-  console.log("response de encryptResponse:", encryptResponse);
+  //console.log("response de encryptResponse:", encryptResponse);
   try {
       // Invertir el vector inicial
       const flipped_iv = [];
@@ -960,7 +960,7 @@ const encryptResponse = (response, aesKeyBuffer, initialVectorBuffer) => {
           cipher.getAuthTag(),
       ]).toString("base64");
       
-      console.log('Respuesta encriptada:', encryptedResponse);
+      //console.log('Respuesta encriptada:', encryptedResponse);
       return encryptedResponse;
   } catch (error) {
       console.error('Error en encryptResponse:', error);
@@ -1007,7 +1007,14 @@ class FlowHandler {
       action: decryptedBody.action     // Añadir action aquí también para mantener compatibilidad
     };
 
-    console.log("Valores extraídos:", { action, screen, data });
+    // Log para depuración
+    console.log("Datos extraídos completos:", {
+      action,
+      screen,
+      data,
+      selectedService: data.selected_service,
+      selectedLocation: data.selected_location
+  });
 
     try {
       // Manejar casos especiales primero
