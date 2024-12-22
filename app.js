@@ -1160,61 +1160,91 @@ class FlowHandler {
   }
 
   async handleDATE_SELECTION(input) {
+    console.log("=== Inicio de DATE_SELECTION ===");
+    console.log("Input recibido:", input);
+
     // Si es una solicitud inicial o de actualización sin fecha seleccionada
     if (input.action === "data_exchange" && !input.date) {
-      try {
-        const servicioCompleto = this._getServicioCompleto(input.selected_service);
-        // Obtener fechas disponibles para los próximos días
-        const diasDisponibles = await MongoDB.BuscarDisponibilidadSiguienteSemana(
-          input.selected_staff,
-          input.selected_location,
-          servicioCompleto.nombre,
-          servicioCompleto.especialidadID,
-          servicioCompleto.duracion,
-          moment().format('YYYY-MM-DD')  // Cambiado el formato de fecha
-        );
+        try {
+            const servicioCompleto = this._getServicioCompleto(input.selected_service);
+            if (!servicioCompleto) {
+                throw new Error("Servicio no encontrado");
+            }
 
-        return {
-          success: true,
-          screen: "DATE_SELECTION",
-          data: {
-            available_dates: diasDisponibles.map(d => ({
-              id: moment(d.dia, 'DD/MM/YYYY').format('YYYY-MM-DD'),  // Cambiado el formato
-              title: d.dia // Mantenemos el formato DD/MM/YYYY para mostrar
-            })),
-            is_date_enabled: true,
-            selected_staff: input.selected_staff,
-            selected_service: input.selected_service,
-            selected_location: input.selected_location
-          }
-        };
-      } catch (error) {
-        console.error('Error al obtener fechas disponibles:', error);
-        return {
-          success: false,
-          screen: "DATE_SELECTION",
-          data: {
-            error: true,
-            error_message: "Error al obtener fechas disponibles"
-          }
-        };
-      }
+            // Verificar que tenemos todos los datos necesarios
+            if (!input.selected_staff || !input.selected_location || !input.selected_service) {
+                throw new Error("Faltan datos necesarios para buscar disponibilidad");
+            }
+
+            // Obtener fechas disponibles para los próximos días
+            const diasDisponibles = await MongoDB.BuscarDisponibilidadSiguienteSemana(
+                input.selected_staff,
+                input.selected_location,
+                servicioCompleto.nombre,
+                servicioCompleto.especialidadID,
+                servicioCompleto.duracion,
+                moment().format('YYYY-MM-DD')
+            );
+
+            console.log("Días disponibles encontrados:", diasDisponibles);
+
+            return {
+                success: true,
+                nextScreen: "DATE_SELECTION",  // Cambiado a nextScreen
+                data: {
+                    available_dates: diasDisponibles.map(d => ({
+                        id: moment(d.dia, 'DD/MM/YYYY').format('YYYY-MM-DD'),
+                        title: d.dia
+                    })),
+                    is_date_enabled: true,
+                    selected_staff: input.selected_staff,
+                    selected_service: input.selected_service,
+                    selected_location: input.selected_location
+                }
+            };
+        } catch (error) {
+            console.error('Error al obtener fechas disponibles:', error);
+            return {
+                success: false,
+                nextScreen: "DATE_SELECTION",
+                data: {
+                    error: true,
+                    error_message: "Error al obtener fechas disponibles: " + error.message,
+                    selected_staff: input.selected_staff,
+                    selected_service: input.selected_service,
+                    selected_location: input.selected_location
+                }
+            };
+        }
     }
 
     // Si hay una fecha seleccionada
     if (input.date) {
-      return {
-        success: true,
-        nextScreen: "TIME_SELECTION",
-        data: {
-          selected_date: input.date,
-          selected_staff: input.selected_staff,
-          selected_service: input.selected_service,
-          selected_location: input.selected_location
-        }
-      };
+        return {
+            success: true,
+            nextScreen: "TIME_SELECTION",
+            data: {
+                selected_date: input.date,
+                selected_staff: input.selected_staff,
+                selected_service: input.selected_service,
+                selected_location: input.selected_location
+            }
+        };
     }
-  }
+
+    // Si no se cumple ninguna de las condiciones anteriores
+    return {
+        success: false,
+        nextScreen: "DATE_SELECTION",
+        data: {
+            error: true,
+            error_message: "Solicitud no válida",
+            selected_staff: input.selected_staff,
+            selected_service: input.selected_service,
+            selected_location: input.selected_location
+        }
+    };
+}
 
   async handleTIME_SELECTION(input) {
     // Si es una solicitud inicial o de actualización sin hora seleccionada
