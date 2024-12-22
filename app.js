@@ -1115,8 +1115,8 @@ class FlowHandler {
         selectedService: servicioCompleto,
         selectedLocation: input.location
       };
-      console.log("selectedLocation:", this.currentState.selectedLocation);
-      console.log("input.location:", input.location);
+      
+      console.log("Estado actualizado en SERVICE_AND_LOCATION:", this.currentState);
 
 
       // Si solo necesitamos el staff disponible, usamos un enfoque más simple
@@ -1167,11 +1167,32 @@ class FlowHandler {
   }
 
   async handleSTAFF_SELECTION(input) {
+
+    console.log("=== Inicio de STAFF_SELECTION ===");
+    console.log("Estado actual:", this.currentState);
+    console.log("Input recibido:", input);
     // Si es una solicitud para obtener fechas disponibles
     if (input.action === "data_exchange" && input.staff && input.get_data?.includes('available_dates')) {
       this.updateState({
         selectedStaff: input.staff
       });
+
+      console.log("Verificando location para filtrar staff:", this.currentState.selectedLocation);
+      
+      if (!this.currentState.selectedLocation) {
+        console.error("No hay ubicación seleccionada en el estado");
+        return {
+          success: false,
+          screen: "STAFF_SELECTION",
+          data: {
+            error: true,
+            error_message: "No se ha seleccionado una ubicación"
+          }
+        };
+      }
+      
+      const staffDelCentro = peluqueros.filter(p => p.salonID === this.currentState.selectedLocation);
+      console.log("Staff filtrado:", staffDelCentro);
 
       try {
         const diasDisponibles = await MongoDB.BuscarDisponibilidadSiguienteSemana(
@@ -1180,7 +1201,7 @@ class FlowHandler {
           this.currentState.selectedService?.nombre || '',
           this.currentState.selectedService?.especialidadID || '',
           this.currentState.selectedService?.duracion || 30,
-          moment().format('MM/DD/YYYY')
+          moment().format('YYYY-MM-DD')
         );
 
         return {
@@ -1239,7 +1260,7 @@ class FlowHandler {
       this.currentState.selectedService.nombre,
       this.currentState.selectedService.especialidadID,
       this.currentState.selectedService.duracion,
-      moment().format('MM/DD/YYYY')
+      moment().format('YYYY-MM-DD')
     );
 
     return {
@@ -1247,7 +1268,7 @@ class FlowHandler {
       nextScreen: "DATE_SELECTION",
       data: {
         available_dates: diasDisponibles.map(d => ({
-          id: moment(d.dia, 'DD/MM/YYYY').format('MM/DD/YYYY'),
+          id: moment(d.dia, 'DD/MM/YYYY').format('YYYY-MM-DD'),
           title: d.dia
         })),
         selected_staff: input.staff
@@ -1267,7 +1288,7 @@ class FlowHandler {
           this.currentState.selectedService.nombre,
           this.currentState.selectedService.especialidadID,
           this.currentState.selectedService.duracion,
-          moment().format('MM/DD/YYYY')
+          moment().format('YYYY-MM-DD')
         );
 
         return {
