@@ -4772,18 +4772,18 @@ class CommandQueue {
     this.queue = [];
     this.processing = false;
     this.priorities = {
-      SERV: 1,        // Primera: identificar el servicio
-      CENTROID: 2,    // Segunda: identificar el centro
-      SPECIALITY: 3,  // Tercera: identificar tipo de servicio
-      CONSULTHOR: 4,  // Cuarta: consultar horarios
-      LISTAPELUQ: 5,  // Quinta: buscar peluqueros
-      GUARDACITA: 6,  // Sexta: guardar la cita
+      SERV: 2,        // Primera: identificar el servicio
+      CENTROID: 3,    // Segunda: identificar el centro
+      SPECIALITY: 4,  // Tercera: identificar tipo de servicio
+      CONSULTHOR: 5,  // Cuarta: consultar horarios
+      LISTAPELUQ: 6,  // Quinta: buscar peluqueros
+      GUARDACITA: 7,  // Sexta: guardar la cita
       CANCELACITA: 10,
       MODCITA: 11,
       BUSCARCITA: 12,
       SALON: 13,
       CENTROINFO: 14,
-      FLOWCITA: 15,
+      FLOWCITA: 1,
     };
 
     this.dependencies = {
