@@ -1144,6 +1144,8 @@ class FlowHandler {
     console.log("Action:", input.action);
     console.log("Staff:", input.staff);
     console.log("Get Data:", input.get_data);
+    console.log("location:", input.selected_location);
+    console.log("service:", input.selected_service);
   
    // Si es una solicitud para obtener fechas disponibles
    if (input.action === "data_exchange" && input.staff && input.get_data?.includes('available_dates')) {
