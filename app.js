@@ -1057,15 +1057,18 @@ class FlowHandler {
   getServiciosDisponibles() {
     return servicios.map(s => ({
       id: s.servicioID,
-      title: s.servicio,
-      duracion: s.duracion,
-      especialidadID: s.especialidadID
+      title: s.servicio
     }));
+  }
+
+  // Método auxiliar para obtener la información completa del servicio
+  _getServicioCompleto(servicioId) {
+    return servicios.find(s => s.servicioID === servicioId);
   }
 
   getCentrosDisponibles() {
     return salones
-      .filter(s => ["Nervión Caballeros", "Nervión Señoras", "Duque", "Sevilla Este"]
+      .filter(s => ["Nervión Caballeros", "Nervión Señora", "Duque", "Sevilla Este"]
         .includes(s.nombre))
       .map(s => ({
         id: s.salonID,
@@ -1092,7 +1095,8 @@ class FlowHandler {
 
   async handleSERVICE_AND_LOCATION(input) {
     if (input.action === "data_exchange" && input.service && input.location) {
-      this.currentState.selectedService = servicios.find(s => s.servicioID === input.service);
+      const servicioCompleto = this._getServicioCompleto(input.service);
+      this.currentState.selectedService = servicioCompleto;
       this.currentState.selectedLocation = input.location;
 
       const peluquerosDisponibles = await MongoDB.ListarPeluquerosDisponibles(
