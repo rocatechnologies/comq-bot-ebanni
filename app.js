@@ -979,226 +979,379 @@ const ENDPOINT_TIMEOUT = 30000; // 30 segundos
  */
 class FlowHandler {
   constructor() {
-    this.currentData = {};
+    this.currentState = {
+      selectedService: null,
+      selectedLocation: null,
+      selectedStaff: null,
+      selectedDate: null,
+      selectedTime: null,
+      customerDetails: null
+    };
   }
 
-  async processRequest(decryptedBody) {
-    console.log("\n=== PROCESANDO SOLICITUD DE FLOW ===");
-    console.log("Datos recibidos:", decryptedBody);
+  // Utilidades para manejo de fechas
+  _formatDateForDB(date) {
+    return moment(date).format('MM/DD/YYYY');
+  }
 
-    const action = decryptedBody.action || '';
-    const screen = decryptedBody.screen || '';
-    const data = decryptedBody.data || {};
+  _formatDateForClient(date) {
+    return moment(date).format('DD/MM/YYYY');
+  }
 
-    console.log("Valores extraídos:", { action, screen, data });
-
+  async handleWELCOME(input, context) {
     try {
-      if (action === "ping") {
-        return { data: { status: "active" } };
-      }
+      // Reiniciar el estado por si es un nuevo flujo
+      this.currentState = {
+        selectedService: null,
+        selectedLocation: null,
+        selectedStaff: null,
+        selectedDate: null,
+        selectedTime: null,
+        customerDetails: null
+      };
 
-      if (action === "INIT" || screen === "") {
-        return {
-          version: "3.0",
-          screen: "WELCOME",
-          data: {}
-        };
-      }
-
-      switch(screen) {
-        case "WELCOME": {
-          if (action === "data_exchange") {
-            console.log("Procesando data_exchange desde WELCOME");
-            const services = this.getServiciosDisponibles();
-            const locations = this.getCentrosDisponibles();
-            return {
-              version: "3.0",
-              screen: "SERVICE_AND_LOCATION",
-              data: {
-                services,
-                locations,
-                is_services_enabled: true,
-                is_location_enabled: true
-              }
-            };
-          }
-          break;
-        }
-
-        case "SERVICE_AND_LOCATION": {
-          if (action === "data_exchange") {
-            console.log("Procesando data_exchange desde SERVICE_AND_LOCATION");
-            const { service, location } = data;
-            const availableStaff = await this.getAvailableStaff(service, location);
-
-            return {
-              version: "3.0",
-              screen: "APPOINTMENT_DETAILS",
-              data: {
-                available_staff: availableStaff,
-                is_staff_enabled: true,
-                is_date_enabled: true,
-                is_time_enabled: true,
-                selected_service: service,
-                selected_location: location
-              }
-            };
-          }
-          break;
-        }
-
-        case "APPOINTMENT_DETAILS": {
-          if (action === "data_exchange") {
-            console.log("Procesando data_exchange desde APPOINTMENT_DETAILS");
-            console.log("data:", data); // <-- Agrega este log
-            
-            // Caso 1: Solo staff seleccionado
-            if (data.staff && !data.date) {
-              const availableDates = await this.getAvailableDates(data.location);
-              return {
-                version: "3.0",
-                screen: "APPOINTMENT_DETAILS",
-                data: {
-                  ...data,
-                  available_dates: availableDates,
-                  is_date_enabled: true,
-                  is_time_enabled: false
-                }
-              };
-            }
-
-            // Caso 2: Staff y fecha seleccionados
-            if (data.staff && data.date && !data.time) {
-              // Asegúrate de parsear la fecha correctamente
-              const dateMoment = moment(data.date, ["YYYY-MM-DD", "DD/MM/YYYY"], true)
-                .tz("Europe/Madrid");
-
-              console.log("dateMoment valido?", dateMoment.isValid());
-
-              // Llama a tu función de BD
-              const horarios = await MongoDB.BuscarHorariosDisponiblesPeluquero(
-                data.staff,
-                dateMoment,
-                30, // Duración por defecto
-                data.location
-              );
-              console.log("Horarios devueltos:", horarios);
-
-              const availableTimes = horarios.map(hora => ({
-                id: hora,
-                title: hora
-              }));
-
-              return {
-                version: "3.0",
-                screen: "APPOINTMENT_DETAILS",
-                data: {
-                  ...data,
-                  available_times: availableTimes,
-                  is_time_enabled: true
-                }
-              };
-            }
-
-            // Caso 3: Todos los datos seleccionados
-            if (data.staff && data.date && data.time) {
-              return {
-                version: "3.0",
-                screen: "CUSTOMER_DETAILS",
-                data: {
-                  selected_staff: data.staff,
-                  selected_date: data.date,
-                  selected_time: data.time,
-                  selected_service: data.service,
-                  selected_location: data.location
-                }
-              };
-            }
-          }
-          break;
-        }
-      }
-
-      console.log("Acción no manejada:", { screen, action });
-      throw new Error(`Acción no soportada: ${action} en pantalla ${screen}`);
-
-    } catch (error) {
-      console.error("Error procesando request:", error);
       return {
-        version: "3.0",
-        screen: "WELCOME",
+        success: true,
+        nextScreen: 'SERVICE_AND_LOCATION',
         data: {
-          error: true,
-          error_message: error.message
+          message: '¡Bienvenido! Por favor, seleccione un servicio y ubicación.'
         }
+      };
+    } catch (error) {
+      console.error('Error en WELCOME:', error);
+      return {
+        success: false,
+        error: 'Error al iniciar el flujo'
       };
     }
   }
 
-  getServiciosDisponibles() {
-    return servicios.map(s => ({
-      id: s.servicioID,
-      title: s.servicio,
-      description: `Duración: ${s.duracion} minutos`
-    }));
-  }
+  async handleSERVICE_AND_LOCATION(input, context) {
+    try {
+      if (input && input.service && input.location) {
+        // Validar que el servicio y la ubicación existan en la BD
+        // Aquí deberías agregar la lógica de validación específica
+        
+        this.currentState.selectedService = input.service;
+        this.currentState.selectedLocation = input.location;
 
-  getCentrosDisponibles() {
-    return salones
-      .filter(s => ["Nervión Caballeros", "Nervión Señoras", "Duque", "Sevilla Este"]
-        .includes(s.nombre))
-      .map(s => ({
-        id: s.salonID,
-        title: s.nombre,
-        description: s.address
-      }));
-  }
-
-  async getAvailableStaff(serviceId, locationId) {
-    console.log("Buscando staff disponible para:", {
-      serviceId,
-      locationId
-    });
-
-    const staffDelCentro = peluqueros.filter(p => p.salonID === locationId);
-    
-    if (staffDelCentro.length === 0) {
-      console.log("No se encontró staff para el centro:", locationId);
-      return [];
-    }
-
-    return staffDelCentro.map(p => ({
-      id: p.peluqueroID,
-      title: p.name
-    }));
-  }
-
-  async getAvailableDates(locationId) {
-    console.log("Obteniendo fechas disponibles para location:", locationId);
-    const dates = [];
-    const startDate = moment().tz("Europe/Madrid").startOf('day');
-  
-    for (let i = 0; i < 30; i++) {
-      const currentDate = startDate.clone().add(i, 'days');
-      const isDecember = currentDate.month() === 11;
-      const isSunday = currentDate.day() === 0;
-  
-      if (isDecember || !isSunday) {
-        dates.push({
-          // Para la BD u operaciones internas
-          id: currentDate.format('MM/DD/YYYY'),
-          // Para el cliente
-          title: currentDate.format('DD/MM/YYYY')
-        });
+        return {
+          success: true,
+          nextScreen: 'STAFF_SELECTION',
+          data: {
+            service: input.service,
+            location: input.location
+          }
+        };
       }
-    }
-  
-    console.log(`Se encontraron ${dates.length} fechas disponibles`);
-    return dates;
-  }
-  
-}
 
+      // Si no hay input, devolver los servicios y ubicaciones disponibles
+      return {
+        success: true,
+        data: {
+          services: await MongoDB.obtenerServicios(),
+          locations: await MongoDB.obtenerUbicaciones()
+        }
+      };
+    } catch (error) {
+      console.error('Error en SERVICE_AND_LOCATION:', error);
+      return {
+        success: false,
+        error: 'Error al procesar servicio y ubicación'
+      };
+    }
+  }
+
+  async handleSTAFF_SELECTION(input, context) {
+    try {
+      if (!this.currentState.selectedService || !this.currentState.selectedLocation) {
+        return {
+          success: false,
+          error: 'Debe seleccionar servicio y ubicación primero'
+        };
+      }
+
+      const peluquerosDisponibles = await MongoDB.ListarPeluquerosDisponibles(
+        moment(),
+        this.currentState.selectedLocation,
+        this.currentState.selectedService.nombre,
+        this.currentState.selectedService.especialidadID,
+        this.currentState.selectedService.duracion
+      );
+
+      if (input && input.staffId && peluquerosDisponibles.includes(input.staffId)) {
+        this.currentState.selectedStaff = input.staffId;
+        return {
+          success: true,
+          nextScreen: 'DATE_SELECTION',
+          data: peluquerosDisponibles
+        };
+      }
+
+      return {
+        success: true,
+        data: peluquerosDisponibles
+      };
+    } catch (error) {
+      console.error('Error en STAFF_SELECTION:', error);
+      return {
+        success: false,
+        error: 'Error al obtener peluqueros disponibles'
+      };
+    }
+  }
+
+  async handleDATE_SELECTION(input, context) {
+    try {
+      if (!this.currentState.selectedStaff) {
+        return {
+          success: false,
+          error: 'Debe seleccionar un peluquero primero'
+        };
+      }
+
+      const diasDisponibles = await MongoDB.BuscarDisponibilidadSiguienteSemana(
+        this.currentState.selectedStaff,
+        this.currentState.selectedLocation,
+        this.currentState.selectedService.nombre,
+        this.currentState.selectedService.especialidadID,
+        this.currentState.selectedService.duracion,
+        this._formatDateForDB(moment())
+      );
+
+      if (input && input.date) {
+        const fechaSeleccionada = moment(input.date, 'DD/MM/YYYY');
+        const diaDisponible = diasDisponibles.find(d => 
+          moment(d.dia, 'DD/MM/YYYY').isSame(fechaSeleccionada, 'day')
+        );
+
+        if (diaDisponible) {
+          this.currentState.selectedDate = fechaSeleccionada;
+          return {
+            success: true,
+            nextScreen: 'TIME_SELECTION',
+            data: {
+              diasDisponibles: diasDisponibles.map(d => ({
+                ...d,
+                dia: this._formatDateForClient(d.dia)
+              }))
+            }
+          };
+        }
+      }
+
+      return {
+        success: true,
+        data: {
+          diasDisponibles: diasDisponibles.map(d => ({
+            ...d,
+            dia: this._formatDateForClient(d.dia)
+          }))
+        }
+      };
+    } catch (error) {
+      console.error('Error en DATE_SELECTION:', error);
+      return {
+        success: false,
+        error: 'Error al obtener fechas disponibles'
+      };
+    }
+  }
+
+  async handleTIME_SELECTION(input, context) {
+    try {
+      if (!this.currentState.selectedDate) {
+        return {
+          success: false,
+          error: 'Debe seleccionar una fecha primero'
+        };
+      }
+
+      const horariosDisponibles = await MongoDB.BuscarHorariosDisponiblesPeluquero(
+        this.currentState.selectedStaff,
+        this.currentState.selectedDate,
+        this.currentState.selectedService.duracion,
+        this.currentState.selectedLocation
+      );
+
+      if (input && input.time) {
+        if (horariosDisponibles.includes(input.time)) {
+          this.currentState.selectedTime = input.time;
+          return {
+            success: true,
+            nextScreen: 'CUSTOMER_DETAILS',
+            data: { horariosDisponibles }
+          };
+        } else {
+          return {
+            success: false,
+            error: 'Hora no disponible',
+            data: { horariosDisponibles }
+          };
+        }
+      }
+
+      return {
+        success: true,
+        data: { horariosDisponibles }
+      };
+    } catch (error) {
+      console.error('Error en TIME_SELECTION:', error);
+      return {
+        success: false,
+        error: 'Error al obtener horarios disponibles'
+      };
+    }
+  }
+
+  async handleCUSTOMER_DETAILS(input, context) {
+    try {
+      if (!this.currentState.selectedTime) {
+        return {
+          success: false,
+          error: 'Debe seleccionar una hora primero'
+        };
+      }
+
+      if (input && input.customerDetails) {
+        // Validar los detalles del cliente
+        const { nombre, telefono, email } = input.customerDetails;
+        if (!nombre || !telefono) {
+          return {
+            success: false,
+            error: 'Nombre y teléfono son obligatorios'
+          };
+        }
+
+        this.currentState.customerDetails = input.customerDetails;
+        return {
+          success: true,
+          nextScreen: 'SUMMARY',
+          data: input.customerDetails
+        };
+      }
+
+      return {
+        success: true,
+        data: {
+          message: 'Por favor, ingrese sus datos de contacto'
+        }
+      };
+    } catch (error) {
+      console.error('Error en CUSTOMER_DETAILS:', error);
+      return {
+        success: false,
+        error: 'Error al procesar datos del cliente'
+      };
+    }
+  }
+
+  async handleSUMMARY(input, context) {
+    try {
+      if (!this.currentState.customerDetails) {
+        return {
+          success: false,
+          error: 'Información incompleta'
+        };
+      }
+
+      const resumen = {
+        servicio: this.currentState.selectedService,
+        ubicacion: this.currentState.selectedLocation,
+        peluquero: this.currentState.selectedStaff,
+        fecha: this._formatDateForClient(this.currentState.selectedDate),
+        hora: this.currentState.selectedTime,
+        cliente: this.currentState.customerDetails
+      };
+
+      if (input && input.confirmed === true) {
+        return {
+          success: true,
+          nextScreen: 'CONFIRMATION',
+          data: resumen
+        };
+      }
+
+      return {
+        success: true,
+        data: resumen
+      };
+    } catch (error) {
+      console.error('Error en SUMMARY:', error);
+      return {
+        success: false,
+        error: 'Error al generar resumen'
+      };
+    }
+  }
+
+  async handleCONFIRMATION(input, context) {
+    try {
+      // Crear el evento en la base de datos
+      const horaInicio = moment(`${this._formatDateForDB(this.currentState.selectedDate)} ${this.currentState.selectedTime}`, 'MM/DD/YYYY HH:mm');
+      const horaFin = horaInicio.clone().add(this.currentState.selectedService.duracion, 'minutes');
+
+      const eventoGuardado = await MongoDB.GuardarEventoEnBD({
+        nombre: this.currentState.customerDetails.nombre,
+        from: this.currentState.customerDetails.telefono,
+        servicioID: this.currentState.selectedService.id,
+        peluquero: {
+          peluqueroID: this.currentState.selectedStaff
+        },
+        salonID: this.currentState.selectedLocation
+      }, horaInicio, horaFin);
+
+      if (eventoGuardado) {
+        return {
+          success: true,
+          data: {
+            message: '¡Su cita ha sido confirmada!',
+            detalles: {
+              fecha: this._formatDateForClient(this.currentState.selectedDate),
+              hora: this.currentState.selectedTime,
+              servicio: this.currentState.selectedService.nombre,
+              peluquero: this.currentState.selectedStaff
+            }
+          }
+        };
+      } else {
+        throw new Error('No se pudo guardar la cita');
+      }
+    } catch (error) {
+      console.error('Error en CONFIRMATION:', error);
+      return {
+        success: false,
+        error: 'Error al confirmar la cita'
+      };
+    }
+  }
+
+  async handleNavigation(currentScreen, input, context) {
+    switch (currentScreen) {
+      case 'WELCOME':
+        return await this.handleWELCOME(input, context);
+      case 'SERVICE_AND_LOCATION':
+        return await this.handleSERVICE_AND_LOCATION(input, context);
+      case 'STAFF_SELECTION':
+        return await this.handleSTAFF_SELECTION(input, context);
+      case 'DATE_SELECTION':
+        return await this.handleDATE_SELECTION(input, context);
+      case 'TIME_SELECTION':
+        return await this.handleTIME_SELECTION(input, context);
+      case 'CUSTOMER_DETAILS':
+        return await this.handleCUSTOMER_DETAILS(input, context);
+      case 'SUMMARY':
+        return await this.handleSUMMARY(input, context);
+      case 'CONFIRMATION':
+        return await this.handleCONFIRMATION(input, context);
+      default:
+        return {
+          success: false,
+          error: 'Pantalla no reconocida'
+        };
+    }
+  }
+}
 
 app.post("/flow/data", async (req, res) => {
   console.log("\n=== INICIO PROCESAMIENTO FLOW DATA ===");
@@ -3135,7 +3288,7 @@ class Conversation {
             to: this.from,
             type: "template",
             template: {
-                name: "pedircita3",
+                name: "pedircita4",
                 language: {
                     code: "es"
                 },
