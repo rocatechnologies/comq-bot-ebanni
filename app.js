@@ -1116,72 +1116,41 @@ class FlowHandler {
     console.log("=== Inicio de STAFF_SELECTION ===");
     console.log("Input recibido:", input);
 
-    // Mantener los valores seleccionados de la pantalla anterior
-    const selectedService = input.selected_service;
-    const selectedLocation = input.selected_location;
-
+    // Si es una solicitud para obtener fechas disponibles
     if (input.action === "data_exchange" && input.staff && input.get_data?.includes('available_dates')) {
-      // Si no tenemos los valores necesarios, intentamos obtenerlos del estado anterior
-      if (!selectedService || !selectedLocation) {
-        // Devolver error y mantener los datos del staff seleccionado
-        return {
-          success: false,
-          screen: "STAFF_SELECTION",
-          data: {
-            error: true,
-            error_message: "Se perdieron los datos de selección previa",
-            selected_staff: input.staff,
-            // Importante: devolver también la lista de staff disponible
-            available_staff: peluqueros
-              .filter(p => p.salonID === selectedLocation)
-              .map(p => ({
-                id: p.peluqueroID,
-                title: p.name
-              }))
-          }
-        };
-      }
-
-      const servicioCompleto = this._getServicioCompleto(selectedService);
+      const staffDelCentro = peluqueros.filter(p => p.salonID === input.selected_location);
       
-      try {
-        const diasDisponibles = await MongoDB.BuscarDisponibilidadSiguienteSemana(
-          input.staff,
-          selectedLocation,
-          servicioCompleto.nombre,
-          servicioCompleto.especialidadID,
-          servicioCompleto.duracion,
-          moment().format('YYYY-MM-DD')
-        );
-
-        return {
-          success: true,
-          screen: "STAFF_SELECTION",
-          data: {
-            available_dates: diasDisponibles.map(d => ({
-              id: moment(d.dia, 'DD/MM/YYYY').format('YYYY-MM-DD'),
-              title: d.dia
-            })),
-            selected_staff: input.staff,
-            selected_service: selectedService,
-            selected_location: selectedLocation
-          }
-        };
-      } catch (error) {
-        console.error('Error al obtener fechas disponibles:', error);
-        return {
-          success: false,
-          screen: "STAFF_SELECTION",
-          data: {
-            error: true,
-            error_message: "Error al obtener fechas disponibles",
-            selected_staff: input.staff,
-            selected_service: selectedService,
-            selected_location: selectedLocation
-          }
-        };
-      }
+      // Si no tenemos los datos de servicio y ubicación en el input
+      return {
+        success: true,
+        screen: "STAFF_SELECTION",
+        data: {
+          // Siempre incluimos el staff disponible
+          available_staff: staffDelCentro.map(p => ({
+            id: p.peluqueroID,
+            title: p.name
+          })),
+          // Pedimos al frontend que vuelva a enviar la solicitud con los datos completos
+          needs_service_location: true,
+          selected_staff: input.staff,
+          error: false
+        }
+      };
     }
+
+    // Para cualquier otra solicitud en STAFF_SELECTION
+    return {
+      success: true,
+      screen: "STAFF_SELECTION",
+      data: {
+        available_staff: peluqueros.map(p => ({
+          id: p.peluqueroID,
+          title: p.name
+        })),
+        is_staff_enabled: true,
+        error: false
+      }
+    };
   }
 
   async handleDATE_SELECTION(input) {
