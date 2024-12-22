@@ -1148,6 +1148,47 @@ class FlowHandler {
   }
 
   async handleSTAFF_SELECTION(input) {
+    // Si es una solicitud para obtener fechas disponibles
+    if (input.action === "data_exchange" && input.staff && input.get_data?.includes('available_dates')) {
+      this.currentState.selectedStaff = input.staff;
+
+      try {
+        const diasDisponibles = await MongoDB.BuscarDisponibilidadSiguienteSemana(
+          input.staff,
+          this.currentState.selectedLocation,
+          this.currentState.selectedService?.nombre || '',
+          this.currentState.selectedService?.especialidadID || '',
+          this.currentState.selectedService?.duracion || 30,
+          moment().format('YYYY-MM-DD')
+        );
+
+        return {
+          success: true,
+          screen: "STAFF_SELECTION",
+          data: {
+            available_dates: diasDisponibles.map(d => ({
+              id: moment(d.dia, 'DD/MM/YYYY').format('YYYY-MM-DD'),
+              title: d.dia
+            })),
+            selected_staff: input.staff,
+            selected_service: this.currentState.selectedService?.servicioID,
+            selected_location: this.currentState.selectedLocation
+          }
+        };
+      } catch (error) {
+        console.error('Error al obtener fechas disponibles:', error);
+        return {
+          success: false,
+          screen: "STAFF_SELECTION",
+          data: {
+            error: true,
+            error_message: "Error al obtener fechas disponibles",
+            selected_staff: input.staff
+          }
+        };
+      }
+    }
+
     // Si es una solicitud inicial o de actualización sin selección
     if (input.action === "data_exchange" && !input.staff) {
       // Obtener la lista de peluqueros disponibles
@@ -1191,8 +1232,8 @@ class FlowHandler {
         selected_staff: input.staff
       }
     };
-    }
   }
+}
 
   async handleDATE_SELECTION(input) {
     // Si es una solicitud inicial o de actualización sin fecha seleccionada
