@@ -998,7 +998,10 @@ class FlowHandler {
 
     const action = decryptedBody.action || '';
     const screen = decryptedBody.screen || '';
-    const data = decryptedBody.data || {};
+    const data = {
+      ...decryptedBody.data,           // Incluir todos los datos del objeto data
+      action: decryptedBody.action     // Añadir action aquí también para mantener compatibilidad
+    };
 
     console.log("Valores extraídos:", { action, screen, data });
 
@@ -1017,10 +1020,7 @@ class FlowHandler {
       }
 
       // Procesar la solicitud según la pantalla actual
-      const result = await this.handleNavigation(screen, {
-        action,
-        ...data
-      });
+      const result = await this.handleNavigation(screen, data);
 
       // Construir la respuesta en el formato esperado
       return {
