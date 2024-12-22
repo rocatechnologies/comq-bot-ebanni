@@ -1148,12 +1148,27 @@ class FlowHandler {
   }
 
   async handleSTAFF_SELECTION(input) {
-    if (!input.staff) {
+    // Si es una solicitud inicial o de actualización sin selección
+    if (input.action === "data_exchange" && !input.staff) {
+      // Obtener la lista de peluqueros disponibles
+      const staffDelCentro = peluqueros.filter(p => p.salonID === this.currentState.selectedLocation);
       return {
-        success: false,
-        error: 'Debe seleccionar un peluquero'
+        success: true,
+        screen: "STAFF_SELECTION", // Mantenemos la misma pantalla
+        data: {
+          available_staff: staffDelCentro.map(p => ({
+            id: p.peluqueroID,
+            title: p.name
+          })),
+          is_staff_enabled: true,
+          selected_service: this.currentState.selectedService?.servicioID,
+          selected_location: this.currentState.selectedLocation
+        }
       };
     }
+
+    // Si hay una selección de staff
+    if (input.staff) {
 
     this.currentState.selectedStaff = input.staff;
     const diasDisponibles = await MongoDB.BuscarDisponibilidadSiguienteSemana(
@@ -1176,9 +1191,121 @@ class FlowHandler {
         selected_staff: input.staff
       }
     };
+    }
   }
 
-  // ... resto de handlers ...
+  async handleDATE_SELECTION(input) {
+    // Si es una solicitud inicial o de actualización sin fecha seleccionada
+    if (input.action === "data_exchange" && !input.date) {
+      try {
+        // Obtener fechas disponibles para los próximos días
+        const diasDisponibles = await MongoDB.BuscarDisponibilidadSiguienteSemana(
+          this.currentState.selectedStaff,
+          this.currentState.selectedLocation,
+          this.currentState.selectedService.nombre,
+          this.currentState.selectedService.especialidadID,
+          this.currentState.selectedService.duracion,
+          moment().format('YYYY-MM-DD')
+        );
+
+        return {
+          success: true,
+          screen: "DATE_SELECTION",
+          data: {
+            available_dates: diasDisponibles.map(d => ({
+              id: moment(d.dia, 'DD/MM/YYYY').format('YYYY-MM-DD'),
+              title: d.dia // Ya está en formato DD/MM/YYYY
+            })),
+            is_date_enabled: true,
+            selected_staff: this.currentState.selectedStaff,
+            selected_service: this.currentState.selectedService?.servicioID,
+            selected_location: this.currentState.selectedLocation
+          }
+        };
+      } catch (error) {
+        console.error('Error al obtener fechas disponibles:', error);
+        return {
+          success: false,
+          screen: "DATE_SELECTION",
+          data: {
+            error: true,
+            error_message: "Error al obtener fechas disponibles"
+          }
+        };
+      }
+    }
+
+    // Si hay una fecha seleccionada
+    if (input.date) {
+      this.currentState.selectedDate = input.date;
+      return {
+        success: true,
+        nextScreen: "TIME_SELECTION",
+        data: {
+          selected_date: input.date,
+          selected_staff: this.currentState.selectedStaff,
+          selected_service: this.currentState.selectedService?.servicioID,
+          selected_location: this.currentState.selectedLocation
+        }
+      };
+    }
+  }
+
+  async handleTIME_SELECTION(input) {
+    // Si es una solicitud inicial o de actualización sin hora seleccionada
+    if (input.action === "data_exchange" && !input.time) {
+      try {
+        const horariosDisponibles = await MongoDB.BuscarHorariosDisponiblesPeluquero(
+          this.currentState.selectedStaff,
+          moment(this.currentState.selectedDate),
+          this.currentState.selectedService.duracion,
+          this.currentState.selectedLocation
+        );
+
+        return {
+          success: true,
+          screen: "TIME_SELECTION",
+          data: {
+            available_times: horariosDisponibles.map(hora => ({
+              id: hora,
+              title: hora
+            })),
+            is_time_enabled: true,
+            selected_date: this.currentState.selectedDate,
+            selected_staff: this.currentState.selectedStaff,
+            selected_service: this.currentState.selectedService?.servicioID,
+            selected_location: this.currentState.selectedLocation
+          }
+        };
+      } catch (error) {
+        console.error('Error al obtener horarios disponibles:', error);
+        return {
+          success: false,
+          screen: "TIME_SELECTION",
+          data: {
+            error: true,
+            error_message: "Error al obtener horarios disponibles"
+          }
+        };
+      }
+    }
+
+    // Si hay una hora seleccionada
+    if (input.time) {
+      this.currentState.selectedTime = input.time;
+      return {
+        success: true,
+        nextScreen: "CUSTOMER_DETAILS",
+        data: {
+          selected_time: input.time,
+          selected_date: this.currentState.selectedDate,
+          selected_staff: this.currentState.selectedStaff,
+          selected_service: this.currentState.selectedService?.servicioID,
+          selected_location: this.currentState.selectedLocation
+        }
+      };
+    }
+  }
 
   async handleNavigation(currentScreen, input) {
     switch (currentScreen) {
@@ -1188,7 +1315,10 @@ class FlowHandler {
         return await this.handleSERVICE_AND_LOCATION(input);
       case "STAFF_SELECTION":
         return await this.handleSTAFF_SELECTION(input);
-      // ... otros casos ...
+        case "DATE_SELECTION":
+          return await this.handleDATE_SELECTION(input);
+        case "TIME_SELECTION":
+          return await this.handleTIME_SELECTION(input);
       default:
         throw new Error(`Pantalla no soportada: ${currentScreen}`);
     }
