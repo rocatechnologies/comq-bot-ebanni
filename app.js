@@ -1122,12 +1122,17 @@ class FlowHandler {
   }
 
   async handleSERVICE_AND_LOCATION(input) {
+    const responseData;
+    console.log("input.acton:", input.action);
+    console.log("input.service:", input.service);
+    console.log("input.location:", input.location);
+
     if (input.action === "data_exchange" && input.service && input.location) {
       const servicioCompleto = this._getServicioCompleto(input.service);
       const staffDelCentro = peluqueros.filter(p => p.salonID === input.location);
 
       // Guarda estos valores en los datos que se devuelven
-      const responseData = {
+      responseData = {
         available_staff: staffDelCentro.map(p => ({
           id: p.peluqueroID,
           title: p.name
@@ -1147,7 +1152,7 @@ class FlowHandler {
         data: responseData
       };
     }
-    return { success: true, data: {} };
+    return { success: true, data: {responseData} };
   }
 
   async handleSTAFF_SELECTION(input) {
