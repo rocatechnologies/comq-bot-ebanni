@@ -1118,46 +1118,68 @@ class FlowHandler {
   
     // Si es una solicitud para obtener fechas disponibles
     if (input.action === "data_exchange" && input.staff && input.get_data?.includes('available_dates')) {
-      // Asegúrate de que tienes el location_id correcto
-      const location_id = input.selected_location || input.location;
-      
-      // Obtén el staff del centro específico
-      const staffDelCentro = peluqueros.filter(p => p.salonID === location_id);
-      
-      return {
-        success: true,
-        nextScreen: "DATE_SELECTION", // Cambiado de screen a nextScreen
-        data: {
-          available_staff: staffDelCentro.map(p => ({
-            id: p.peluqueroID,
-            title: p.name
-          })),
-          selected_staff: input.staff,
-          selected_service: input.selected_service || input.service,
-          selected_location: location_id,
-          is_staff_enabled: true,
-          error: false
+        try {
+            const location_id = input.selected_location || input.location;
+            const servicioCompleto = this._getServicioCompleto(input.selected_service || input.service);
+            
+            // Obtener fechas disponibles
+            const diasDisponibles = await MongoDB.BuscarDisponibilidadSiguienteSemana(
+                input.staff,
+                location_id,
+                servicioCompleto.nombre,
+                servicioCompleto.especialidadID,
+                servicioCompleto.duracion,
+                moment().format('YYYY-MM-DD')
+            );
+            
+            return {
+                success: true,
+                nextScreen: "DATE_SELECTION",
+                data: {
+                    available_dates: diasDisponibles.map(d => ({
+                        id: moment(d.dia, 'DD/MM/YYYY').format('YYYY-MM-DD'),
+                        title: d.dia
+                    })),
+                    is_date_enabled: true,
+                    selected_staff: input.staff,
+                    selected_service: input.selected_service || input.service,
+                    selected_location: location_id,
+                    error: false
+                }
+            };
+        } catch (error) {
+            console.error('Error al obtener fechas disponibles:', error);
+            return {
+                success: false,
+                nextScreen: "STAFF_SELECTION",
+                data: {
+                    error: true,
+                    error_message: "Error al obtener fechas disponibles: " + error.message,
+                    selected_staff: input.staff,
+                    selected_service: input.selected_service || input.service,
+                    selected_location: location_id
+                }
+            };
         }
-      };
     }
-  
+
     // Para cualquier otra solicitud en STAFF_SELECTION
     return {
-      success: true,
-      screen: "STAFF_SELECTION",
-      data: {
-        available_staff: peluqueros.map(p => ({
-          id: p.peluqueroID,
-          title: p.name
-        })),
-        is_staff_enabled: true,
-        selected_staff: input.staff,
-        selected_service: input.selected_service || input.service,
-        selected_location: input.selected_location || input.location,
-        error: false
-      }
+        success: true,
+        screen: "STAFF_SELECTION",
+        data: {
+            available_staff: peluqueros.map(p => ({
+                id: p.peluqueroID,
+                title: p.name
+            })),
+            is_staff_enabled: true,
+            selected_staff: input.staff,
+            selected_service: input.selected_service || input.service,
+            selected_location: input.selected_location || input.location,
+            error: false
+        }
     };
-  }
+}
 
   async handleDATE_SELECTION(input) {
     console.log("=== Inicio de DATE_SELECTION ===");
