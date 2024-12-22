@@ -990,6 +990,9 @@ class FlowHandler {
       "SUMMARY": ["CONFIRMATION"],
       "CONFIRMATION": []
     };
+
+    this.lastSelectedService = null;
+    this.lastSelectedLocation = null;
   }
 
   async processRequest(decryptedBody) {
@@ -1156,9 +1159,23 @@ class FlowHandler {
             throw new Error("Staff no encontrado");
         }
 
-        // Usamos los datos que ya tenemos del contexto anterior
-        const serviceId = input.selected_service || "6683cc0c4ec0e3993f41eb19";  // Valor que vemos en el log
-        const locationId = input.selected_location || "665f640d47675f27f8647ca1"; // Valor que vemos en el log
+        // Intentamos obtener los valores de diferentes fuentes en orden de prioridad
+        const serviceId = input.selected_service || 
+                         input.service || 
+                         this.lastSelectedService;  // Podríamos mantener esto en la clase
+        
+        const locationId = input.selected_location || 
+                          input.location || 
+                          staffMember.salonID ||    // Podemos usar el salón del staff
+                          this.lastSelectedLocation;
+
+        if (!serviceId || !locationId) {
+            throw new Error("No se encontraron datos de servicio o ubicación");
+        }
+
+        // Guardamos los últimos valores seleccionados
+        this.lastSelectedService = serviceId;
+        this.lastSelectedLocation = locationId;
         
         console.log("Usando datos:", { staffId: input.staff, serviceId, locationId });
         
@@ -1182,7 +1199,7 @@ class FlowHandler {
         };
     }
 
-    // Para solicitudes regulares...
+    // Mantener los valores seleccionados en la respuesta regular también
     return {
         success: true,
         screen: "STAFF_SELECTION",
@@ -1193,8 +1210,8 @@ class FlowHandler {
             })),
             is_staff_enabled: true,
             selected_staff: input.staff,
-            selected_service: "6683cc0c4ec0e3993f41eb19",  // Añadido
-            selected_location: "665f640d47675f27f8647ca1", // Añadido
+            selected_service: this.lastSelectedService,
+            selected_location: this.lastSelectedLocation,
             error: false
         }
     };
