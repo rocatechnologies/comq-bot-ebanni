@@ -977,7 +977,6 @@ const ENDPOINT_TIMEOUT = 30000; // 30 segundos
 /**
  * Clase que maneja la lógica de pantallas del Flow
  */
-const moment = require('moment-timezone');
 
 class FlowHandler {
   constructor() {
