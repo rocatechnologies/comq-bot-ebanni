@@ -1115,6 +1115,9 @@ class FlowHandler {
         selectedService: servicioCompleto,
         selectedLocation: input.location
       };
+      console.log("selectedLocation:", selectedLocation);
+      console.log("input.location:", input.location);
+
 
       // Si solo necesitamos el staff disponible, usamos un enfoque más simple
       if (input.get_data && input.get_data.includes('available_staff')) {
@@ -1177,7 +1180,7 @@ class FlowHandler {
           this.currentState.selectedService?.nombre || '',
           this.currentState.selectedService?.especialidadID || '',
           this.currentState.selectedService?.duracion || 30,
-          moment().format('YYYY-MM-DD')
+          moment().format('MM/DD/YYYY')
         );
 
         return {
@@ -1185,7 +1188,7 @@ class FlowHandler {
           screen: "STAFF_SELECTION",
           data: {
             available_dates: diasDisponibles.map(d => ({
-              id: moment(d.dia, 'DD/MM/YYYY').format('YYYY-MM-DD'),
+              id: moment(d.dia, 'DD/MM/YYYY').format('MM/DD/YYYY'),
               title: d.dia
             })),
             selected_staff: input.staff,
@@ -1236,7 +1239,7 @@ class FlowHandler {
       this.currentState.selectedService.nombre,
       this.currentState.selectedService.especialidadID,
       this.currentState.selectedService.duracion,
-      moment().format('YYYY-MM-DD')
+      moment().format('MM/DD/YYYY')
     );
 
     return {
@@ -1264,7 +1267,7 @@ class FlowHandler {
           this.currentState.selectedService.nombre,
           this.currentState.selectedService.especialidadID,
           this.currentState.selectedService.duracion,
-          moment().format('YYYY-MM-DD')
+          moment().format('MM/DD/YYYY')
         );
 
         return {
@@ -1272,7 +1275,7 @@ class FlowHandler {
           screen: "DATE_SELECTION",
           data: {
             available_dates: diasDisponibles.map(d => ({
-              id: moment(d.dia, 'DD/MM/YYYY').format('YYYY-MM-DD'),
+              id: moment(d.dia, 'DD/MM/YYYY').format('MM/DD/YYYY'),
               title: d.dia // Ya está en formato DD/MM/YYYY
             })),
             is_date_enabled: true,
