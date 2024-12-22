@@ -1108,9 +1108,42 @@ class FlowHandler {
   }
 
   async handleSTAFF_SELECTION(input) {
+    console.log("=== Inicio de STAFF_SELECTION ===");
+    console.log("Input recibido:", input);
+
+    // Si es una solicitud para obtener fechas disponibles
     if (input.action === "data_exchange" && input.staff && input.get_data?.includes('available_dates')) {
+      // Verificar que tenemos todos los datos necesarios
+      if (!input.selected_service || !input.selected_location) {
+        console.error('Faltan datos necesarios:', { 
+          service: input.selected_service, 
+          location: input.selected_location 
+        });
+        return {
+          success: false,
+          screen: "STAFF_SELECTION",
+          data: {
+            error: true,
+            error_message: "Faltan datos necesarios (servicio o ubicación)",
+            selected_staff: input.staff
+          }
+        };
+      }
+
       const servicioCompleto = this._getServicioCompleto(input.selected_service);
-      
+      if (!servicioCompleto) {
+        console.error('Servicio no encontrado:', input.selected_service);
+        return {
+          success: false,
+          screen: "STAFF_SELECTION",
+          data: {
+            error: true,
+            error_message: "Servicio no encontrado",
+            selected_staff: input.staff
+          }
+        };
+      }
+
       try {
         const diasDisponibles = await MongoDB.BuscarDisponibilidadSiguienteSemana(
           input.staff,
@@ -1126,7 +1159,7 @@ class FlowHandler {
           screen: "STAFF_SELECTION",
           data: {
             available_dates: diasDisponibles.map(d => ({
-              id: moment(d.dia, 'DD/MM/YYYY').format('MM/DD/YYYY'),
+              id: moment(d.dia, 'DD/MM/YYYY').format('YYYY-MM-DD'),
               title: d.dia
             })),
             selected_staff: input.staff,
@@ -1141,7 +1174,8 @@ class FlowHandler {
           screen: "STAFF_SELECTION",
           data: {
             error: true,
-            error_message: "Error al obtener fechas disponibles"
+            error_message: "Error al obtener fechas disponibles",
+            selected_staff: input.staff
           }
         };
       }
