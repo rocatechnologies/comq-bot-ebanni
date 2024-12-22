@@ -1115,7 +1115,7 @@ class FlowHandler {
         selectedService: servicioCompleto,
         selectedLocation: input.location
       };
-      console.log("selectedLocation:", selectedLocation);
+      console.log("selectedLocation:", this.currentState.selectedLocation);
       console.log("input.location:", input.location);
 
 
