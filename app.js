@@ -1211,33 +1211,43 @@ class FlowHandler {
 }
 
   async handleDATE_SELECTION(input) {
-    console.log("=== Inicio de DATE_SELECTION ===");
-    console.log("Input recibido:", input);
+    console.log("\n=== Inicio de DATE_SELECTION ===");
+    console.log("Input recibido completo:", JSON.stringify(input, null, 2));
+    console.log("Action:", input.action);
+    console.log("Selected Staff:", input.selected_staff);
+    console.log("Selected Service:", input.selected_service);
+    console.log("Selected Location:", input.selected_location);
 
     // Si es una solicitud inicial o de actualización sin fecha seleccionada
     if (input.action === "data_exchange" && !input.date) {
         try {
-            const servicioCompleto = this._getServicioCompleto(input.selected_service);
-            if (!servicioCompleto) {
-                throw new Error("Servicio no encontrado");
-            }
+          console.log("\n=== Procesando solicitud de fechas disponibles ===");
+          const servicioCompleto = this._getServicioCompleto(input.selected_service);
+          console.log("Servicio encontrado:", JSON.stringify(servicioCompleto, null, 2));
 
-            // Verificar que tenemos todos los datos necesarios
-            if (!input.selected_staff || !input.selected_location || !input.selected_service) {
-                throw new Error("Faltan datos necesarios para buscar disponibilidad");
-            }
+          if (!servicioCompleto) {
+              console.log("¡Error! Servicio no encontrado");
+              throw new Error("Servicio no encontrado");
+          }
 
-            // Obtener fechas disponibles para los próximos días
-            const diasDisponibles = await MongoDB.BuscarDisponibilidadSiguienteSemana(
-                input.selected_staff,
-                input.selected_location,
-                servicioCompleto.nombre,
-                servicioCompleto.especialidadID,
-                servicioCompleto.duracion,
-                moment().format('YYYY-MM-DD')
-            );
+          console.log("\nParámetros para BuscarDisponibilidadSiguienteSemana:");
+          console.log("- Staff ID:", input.selected_staff);
+          console.log("- Location ID:", input.selected_location);
+          console.log("- Nombre servicio:", servicioCompleto.nombre);
+          console.log("- Especialidad ID:", servicioCompleto.especialidadID);
+          console.log("- Duración:", servicioCompleto.duracion);
 
-            console.log("Días disponibles encontrados:", diasDisponibles);
+          const diasDisponibles = await MongoDB.BuscarDisponibilidadSiguienteSemana(
+              input.selected_staff,
+              input.selected_location,
+              servicioCompleto.nombre,
+              servicioCompleto.especialidadID,
+              servicioCompleto.duracion,
+              moment().format('YYYY-MM-DD')
+          );
+
+          console.log("\nDías disponibles obtenidos:", JSON.stringify(diasDisponibles, null, 2));
+
 
             return {
                 success: true,
@@ -1455,11 +1465,12 @@ app.post("/flow/data", async (req, res) => {
   try {
     // 1. Descifrar la petición
     const decryptResult = decryptRequest(req.body);
+    conlose.log("decryptResult:", decryptResult);
     const { decryptedBody } = decryptResult;
     aesKeyBuffer = decryptResult.aesKeyBuffer;
     initialVectorBuffer = decryptResult.initialVectorBuffer;
     
-    //console.log("Cuerpo descifrado:", JSON.stringify(decryptedBody, null, 2));
+    console.log("Cuerpo descifrado:", JSON.stringify(decryptedBody, null, 2));
     
     // 2. Procesar la solicitud usando el FlowHandler
     const flowHandler = new FlowHandler();
