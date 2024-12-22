@@ -1115,29 +1115,32 @@ class FlowHandler {
   async handleSTAFF_SELECTION(input) {
     console.log("=== Inicio de STAFF_SELECTION ===");
     console.log("Input recibido:", input);
-
+  
     // Si es una solicitud para obtener fechas disponibles
     if (input.action === "data_exchange" && input.staff && input.get_data?.includes('available_dates')) {
-      const staffDelCentro = peluqueros.filter(p => p.salonID === input.selected_location);
+      // Asegúrate de que tienes el location_id correcto
+      const location_id = input.selected_location || input.location;
       
-      // Si no tenemos los datos de servicio y ubicación en el input
+      // Obtén el staff del centro específico
+      const staffDelCentro = peluqueros.filter(p => p.salonID === location_id);
+      
       return {
         success: true,
-        screen: "STAFF_SELECTION",
+        nextScreen: "DATE_SELECTION", // Cambiado de screen a nextScreen
         data: {
-          // Siempre incluimos el staff disponible
           available_staff: staffDelCentro.map(p => ({
             id: p.peluqueroID,
             title: p.name
           })),
-          // Pedimos al frontend que vuelva a enviar la solicitud con los datos completos
-          needs_service_location: true,
           selected_staff: input.staff,
+          selected_service: input.selected_service || input.service,
+          selected_location: location_id,
+          is_staff_enabled: true,
           error: false
         }
       };
     }
-
+  
     // Para cualquier otra solicitud en STAFF_SELECTION
     return {
       success: true,
@@ -1148,6 +1151,9 @@ class FlowHandler {
           title: p.name
         })),
         is_staff_enabled: true,
+        selected_staff: input.staff,
+        selected_service: input.selected_service || input.service,
+        selected_location: input.selected_location || input.location,
         error: false
       }
     };
