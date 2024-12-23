@@ -2255,6 +2255,14 @@ class Conversation {
       try {
         servicioID = await ChatGPT.CalculaServicioID(servicio);
       } catch (error) {
+        try {
+          const rtn = await ErrorHandler.handleCommandError(gpt.message, error, this);
+          return rtn;
+      } catch (correctionError) {
+          // Si falla la corrección, registrar el error y continuar con el manejo normal de errores
+          DoLog(`Error en la corrección del comando: ${correctionError}`, Log.Error);
+          throw error; // Relanzar el error original si la corrección falla
+      }
         console.error(`Error al identificar el servicio ${servicio}: ${error}`);
         return `Ocurrió un error al procesar el servicio "${servicio}".`;
       }
@@ -2585,6 +2593,14 @@ class Conversation {
       return "";
   
     } catch (error) {
+      try {
+        const rtn = await ErrorHandler.handleCommandError(gpt.message, error, this);
+        return rtn;
+    } catch (correctionError) {
+        // Si falla la corrección, registrar el error y continuar con el manejo normal de errores
+        DoLog(`Error en la corrección del comando: ${correctionError}`, Log.Error);
+        throw error; // Relanzar el error original si la corrección falla
+    }
       // 11. Manejo de errores
       console.error("\n=== ERROR EN PROCESAR PELUQUERO ===");
       console.error("Detalles del error:", {
@@ -2781,6 +2797,14 @@ class Conversation {
         );
       }
     } catch (ex) {
+      try {
+        const rtn = await ErrorHandler.handleCommandError(gpt.message, error, this);
+        return rtn;
+    } catch (correctionError) {
+        // Si falla la corrección, registrar el error y continuar con el manejo normal de errores
+        DoLog(`Error en la corrección del comando: ${correctionError}`, Log.Error);
+        throw error; // Relanzar el error original si la corrección falla
+    }
       DoLog(`Error crítico durante el procesamiento: ${ex.message}`);
       DoLog(`Stack trace: ${ex.stack}`);
       await LogError(
@@ -2993,6 +3017,14 @@ class Conversation {
         rtn.message = `No se pudo identificar el centro con el nombre "${nombreCentro}".`;
       }
     } catch (ex) {
+      try {
+        const rtn = await ErrorHandler.handleCommandError(gpt.message, error, this);
+        return rtn;
+    } catch (correctionError) {
+        // Si falla la corrección, registrar el error y continuar con el manejo normal de errores
+        DoLog(`Error en la corrección del comando: ${correctionError}`, Log.Error);
+        throw error; // Relanzar el error original si la corrección falla
+    }
       DoLog(`Error al obtener la información del centro: ${ex}`, Log.Error);
       await LogError(
         cthis.from,
@@ -3171,6 +3203,14 @@ class Conversation {
         console.log("Mensaje final:", rtn.message);
 
     } catch (error) {
+      try {
+        const rtn = await ErrorHandler.handleCommandError(gpt.message, error, this);
+        return rtn;
+    } catch (correctionError) {
+        // Si falla la corrección, registrar el error y continuar con el manejo normal de errores
+        DoLog(`Error en la corrección del comando: ${correctionError}`, Log.Error);
+        throw error; // Relanzar el error original si la corrección falla
+    }
         console.error("Error en ProcesarConsultarHorario:", error);
         rtn.message = "Lo siento, ha ocurrido un error al consultar los horarios. ¿Podrías intentarlo de nuevo?";
         await LogError(
