@@ -3337,8 +3337,8 @@ class Conversation {
 
                 const citasFueraHorario = await Appointments.find({
                     date: fechaActual.format("MM/DD/YYYY"),
-                    userInfo: mongoose.Types.ObjectId(peluqueroID),
-                    centerInfo: mongoose.Types.ObjectId(this.salonID),
+                    userInfo: new mongoose.Types.ObjectId(peluqueroID),
+                    centerInfo: new mongoose.Types.ObjectId(this.salonID),
                     clientName: "Fuera de horario",
                     status: "confirmed"
                 }).lean();
