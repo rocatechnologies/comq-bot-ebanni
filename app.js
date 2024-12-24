@@ -1225,12 +1225,18 @@ class FlowHandler {
             success: true,
             nextScreen: "DATE_SELECTION",
             data: {
-                available_dates: [], // Inicialmente vacío
-                is_date_enabled: false, // Deshabilitado hasta que carguemos los datos
+                // Incluimos una opción de "cargando" para que el Dropdown sea válido
+                available_dates: [{
+                    id: "loading",
+                    title: "Cargando fechas disponibles...",
+                    has_availability: false,
+                    disabled: true
+                }],
+                is_date_enabled: false,
                 selected_staff: input.staff,
                 selected_service: FlowHandler.lastSelectedService,
                 selected_location: FlowHandler.lastSelectedLocation,
-                loading: true // Indicador de que estamos cargando
+                loading: true
             }
         };
     }
@@ -1258,21 +1264,8 @@ async handleDATE_SELECTION(input) {
     console.log("Input recibido:", input);
 
     // Si es una solicitud inicial o de actualización
-    if (input.action === "data_exchange" && !input.date) {
+    if (input.action === "data_exchange") {
         try {
-            // Si ya tenemos fechas disponibles y no estamos solicitando una actualización, retornamos los datos existentes
-            if (input.available_dates?.length > 0 && !input.refresh) {
-                return {
-                    success: true,
-                    screen: "DATE_SELECTION",
-                    data: {
-                        ...input,
-                        is_date_enabled: true,
-                        loading: false
-                    }
-                };
-            }
-
             // Crear una instancia de Conversation
             const conversation = new Conversation();
             conversation.salonID = input.selected_location;
@@ -1333,6 +1326,27 @@ async handleDATE_SELECTION(input) {
                 }
             }
 
+            // Si no encontramos fechas disponibles
+            if (fechasDisponibles.length === 0) {
+                return {
+                    success: true,
+                    screen: "DATE_SELECTION",
+                    data: {
+                        available_dates: [{
+                            id: "no-dates",
+                            title: "No hay fechas disponibles",
+                            has_availability: false,
+                            disabled: true
+                        }],
+                        is_date_enabled: false,
+                        selected_staff: input.selected_staff,
+                        selected_service: input.selected_service,
+                        selected_location: input.selected_location,
+                        loading: false
+                    }
+                };
+            }
+
             return {
                 success: true,
                 screen: "DATE_SELECTION",
@@ -1342,7 +1356,7 @@ async handleDATE_SELECTION(input) {
                     selected_staff: input.selected_staff,
                     selected_service: input.selected_service,
                     selected_location: input.selected_location,
-                    loading: false // Ya no estamos cargando
+                    loading: false
                 }
             };
         } catch (error) {
@@ -1350,6 +1364,12 @@ async handleDATE_SELECTION(input) {
             return {
                 success: false,
                 data: {
+                    available_dates: [{
+                        id: "error",
+                        title: "Error al cargar fechas",
+                        has_availability: false,
+                        disabled: true
+                    }],
                     error: true,
                     error_message: "Error al obtener fechas disponibles: " + error.message,
                     selected_staff: input.selected_staff,
@@ -1379,8 +1399,16 @@ async handleDATE_SELECTION(input) {
         success: true,
         screen: "DATE_SELECTION",
         data: {
-            ...input,
+            available_dates: [{
+                id: "loading",
+                title: "Cargando fechas disponibles...",
+                has_availability: false,
+                disabled: true
+            }],
             is_date_enabled: false,
+            selected_staff: input.selected_staff,
+            selected_service: input.selected_service,
+            selected_location: input.selected_location,
             loading: true
         }
     };
