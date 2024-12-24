@@ -1219,39 +1219,20 @@ class FlowHandler {
     console.log("=== Inicio de STAFF_SELECTION ===");
     console.log("Input recibido:", input);
 
-    // Si es una solicitud para obtener fechas disponibles
+    // Si es una solicitud para cambiar a la pantalla de fechas
     if (input.action === "data_exchange" && input.staff) {
-        try {
-            // Simplemente pasamos a la siguiente pantalla sin cargar las fechas aún
-            return {
-                success: true,
-                nextScreen: "DATE_SELECTION",
-                data: {
-                    is_date_enabled: true,
-                    selected_staff: input.staff,
-                    selected_service: FlowHandler.lastSelectedService,
-                    selected_location: FlowHandler.lastSelectedLocation,
-                    error: false
-                }
-            };
-        } catch (error) {
-            console.error("Error en STAFF_SELECTION:", error);
-            return {
-                success: false,
-                screen: "STAFF_SELECTION",
-                data: {
-                    available_staff: peluqueros.map(p => ({
-                        id: p.peluqueroID,
-                        title: p.name
-                    })),
-                    is_staff_enabled: true,
-                    selected_service: input.selected_service,
-                    selected_location: input.selected_location,
-                    error: true,
-                    error_message: error.message
-                }
-            };
-        }
+        return {
+            success: true,
+            nextScreen: "DATE_SELECTION",
+            data: {
+                available_dates: [], // Inicialmente vacío
+                is_date_enabled: false, // Deshabilitado hasta que carguemos los datos
+                selected_staff: input.staff,
+                selected_service: FlowHandler.lastSelectedService,
+                selected_location: FlowHandler.lastSelectedLocation,
+                loading: true // Indicador de que estamos cargando
+            }
+        };
     }
 
     // Para solicitudes regulares
@@ -1276,8 +1257,22 @@ async handleDATE_SELECTION(input) {
     console.log("\n=== Inicio de DATE_SELECTION ===");
     console.log("Input recibido:", input);
 
-    if (input.action === "data_exchange") {
+    // Si es una solicitud inicial o de actualización
+    if (input.action === "data_exchange" && !input.date) {
         try {
+            // Si ya tenemos fechas disponibles y no estamos solicitando una actualización, retornamos los datos existentes
+            if (input.available_dates?.length > 0 && !input.refresh) {
+                return {
+                    success: true,
+                    screen: "DATE_SELECTION",
+                    data: {
+                        ...input,
+                        is_date_enabled: true,
+                        loading: false
+                    }
+                };
+            }
+
             // Crear una instancia de Conversation
             const conversation = new Conversation();
             conversation.salonID = input.selected_location;
@@ -1338,17 +1333,16 @@ async handleDATE_SELECTION(input) {
                 }
             }
 
-            console.log("Días disponibles obtenidos:", fechasDisponibles);
-
             return {
                 success: true,
-                nextScreen: "DATE_SELECTION",
+                screen: "DATE_SELECTION",
                 data: {
                     available_dates: fechasDisponibles,
                     is_date_enabled: true,
                     selected_staff: input.selected_staff,
                     selected_service: input.selected_service,
-                    selected_location: input.selected_location
+                    selected_location: input.selected_location,
+                    loading: false // Ya no estamos cargando
                 }
             };
         } catch (error) {
@@ -1360,7 +1354,8 @@ async handleDATE_SELECTION(input) {
                     error_message: "Error al obtener fechas disponibles: " + error.message,
                     selected_staff: input.selected_staff,
                     selected_service: input.selected_service,
-                    selected_location: input.selected_location
+                    selected_location: input.selected_location,
+                    loading: false
                 }
             };
         }
@@ -1381,13 +1376,12 @@ async handleDATE_SELECTION(input) {
     }
 
     return {
-        success: false,
+        success: true,
+        screen: "DATE_SELECTION",
         data: {
-            error: true,
-            error_message: "Solicitud no válida",
-            selected_staff: input.selected_staff,
-            selected_service: input.selected_service,
-            selected_location: input.selected_location
+            ...input,
+            is_date_enabled: false,
+            loading: true
         }
     };
 }
