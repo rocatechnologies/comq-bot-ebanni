@@ -1115,9 +1115,9 @@ class FlowHandler {
         const fechasDisponibles = [];
         const fechaActual = moment().tz("Europe/Madrid");
         
-        // Crear una instancia temporal de la clase que contiene ProcesarConsultarHorario
-        //const handler = new AppointmentHandler();
-        //handler.salonID = locationId;
+        // Crear una instancia de Conversation con los datos necesarios
+        const conversation = new Conversation();
+        conversation.salonID = locationId;
 
         // Buscar disponibilidad para los próximos 14 días
         for (let i = 0; i <= 14; i++) {
@@ -1127,7 +1127,7 @@ class FlowHandler {
             const comando = `CONSULTHOR ${fechaConsulta.format('YYYY-MM-DD')} ${peluquero.name}`;
             
             // Procesar la consulta
-            const resultado = await Conversation.ProcesarConsultarHorario(comando);
+            const resultado = await conversation.ProcesarConsultarHorario(comando);
             
             // Si el mensaje de respuesta indica que hay horarios disponibles
             if (resultado.message && !resultado.message.includes("no tiene horarios registrados")) {
