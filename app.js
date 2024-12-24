@@ -1218,44 +1218,47 @@ class FlowHandler {
   async handleSTAFF_SELECTION(input) {
     console.log("=== Inicio de STAFF_SELECTION ===");
     console.log("Input recibido:", input);
+    
+    let responseData = {
+        available_dates: [{
+            id: "loading",
+            title: "Cargando fechas disponibles..."
+        }],
+        is_date_enabled: false,
+        selected_staff: input.staff,
+        selected_service: FlowHandler.lastSelectedService,
+        selected_location: FlowHandler.lastSelectedLocation,
+        loading: true
+    };
 
     // Si es una solicitud para cambiar a la pantalla de fechas
     if (input.action === "data_exchange" && input.staff) {
         return {
             success: true,
             nextScreen: "DATE_SELECTION",
-            data: {
-                // Incluimos una opción de "cargando" para que el Dropdown sea válido
-                available_dates: [{
-                    id: "loading",
-                    title: "Cargando fechas disponibles..."
-                }],
-                is_date_enabled: false,
-                selected_staff: input.staff,
-                selected_service: FlowHandler.lastSelectedService,
-                selected_location: FlowHandler.lastSelectedLocation,
-                loading: true
-            }
+            data: responseData
         };
     }
 
     // Para solicitudes regulares
+    responseData = {
+        available_staff: peluqueros.map(p => ({
+            id: p.peluqueroID,
+            title: p.name
+        })),
+        is_staff_enabled: true,
+        selected_staff: input.staff,
+        selected_service: FlowHandler.lastSelectedService,
+        selected_location: FlowHandler.lastSelectedLocation,
+        error: false
+    };
+
     return {
         success: true,
         screen: "STAFF_SELECTION",
-        data: {
-            available_staff: peluqueros.map(p => ({
-                id: p.peluqueroID,
-                title: p.name
-            })),
-            is_staff_enabled: true,
-            selected_staff: input.staff,
-            selected_service: input.selected_service,
-            selected_location: input.selected_location,
-            error: false
-        }
+        data: responseData
     };
-}
+  }
 
 async handleDATE_SELECTION(input) {
   console.log("\n=== Inicio de DATE_SELECTION ===");
@@ -1270,6 +1273,8 @@ async handleDATE_SELECTION(input) {
 
           const fechasDisponibles = [];
           const fechaActual = moment().tz("Europe/Madrid");
+          
+          console.log("input.selected_staff:", input.selected_staff);
           
           // Obtener el nombre del peluquero
           const peluquero = peluqueros.find(p => p.peluqueroID === input.selected_staff);
