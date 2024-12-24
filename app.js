@@ -1236,7 +1236,11 @@ class FlowHandler {
         return {
             success: true,
             nextScreen: "DATE_SELECTION",
-            data: responseData
+            data: {
+              ...responseData,
+              selected_service: this.lastSelectedService,
+              selected_location: this.lastSelectedLocation
+          }
         };
     }
 
@@ -1256,7 +1260,11 @@ class FlowHandler {
     return {
         success: true,
         screen: "STAFF_SELECTION",
-        data: responseData
+        data: {
+          ...responseData,
+          selected_service: this.lastSelectedService,
+          selected_location: this.lastSelectedLocation
+      }
     };
   }
 
