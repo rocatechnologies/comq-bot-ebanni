@@ -1116,8 +1116,8 @@ class FlowHandler {
         const fechaActual = moment().tz("Europe/Madrid");
         
         // Crear una instancia temporal de la clase que contiene ProcesarConsultarHorario
-        const handler = new AppointmentHandler();
-        handler.salonID = locationId;
+        //const handler = new AppointmentHandler();
+        //handler.salonID = locationId;
 
         // Buscar disponibilidad para los próximos 14 días
         for (let i = 0; i <= 14; i++) {
