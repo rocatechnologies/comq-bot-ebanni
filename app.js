@@ -1220,34 +1220,17 @@ class FlowHandler {
     console.log("Input recibido:", input);
 
     // Si es una solicitud para obtener fechas disponibles
-    if (input.action === "data_exchange" && input.staff && input.get_data?.includes('available_dates')) {
+    if (input.action === "data_exchange" && input.staff) {
         try {
-            // Usamos los valores estáticos guardados
-            const serviceId = FlowHandler.lastSelectedService;
-            const locationId = FlowHandler.lastSelectedLocation;
-
-            console.log("Usando datos:", {
-                staffId: input.staff,
-                serviceId,
-                locationId
-            });
-
-            // Usar la función getFechasDisponibles modificada
-            const diasDisponibles = await this.getFechasDisponibles(
-                input.staff,
-                serviceId,
-                locationId
-            );
-
+            // Simplemente pasamos a la siguiente pantalla sin cargar las fechas aún
             return {
                 success: true,
                 nextScreen: "DATE_SELECTION",
                 data: {
-                    available_dates: diasDisponibles,
                     is_date_enabled: true,
                     selected_staff: input.staff,
-                    selected_service: serviceId,
-                    selected_location: locationId,
+                    selected_service: FlowHandler.lastSelectedService,
+                    selected_location: FlowHandler.lastSelectedLocation,
                     error: false
                 }
             };
@@ -1295,20 +1278,73 @@ async handleDATE_SELECTION(input) {
 
     if (input.action === "data_exchange") {
         try {
-            // Obtener fechas disponibles usando la función modificada
-            const diasDisponibles = await this.getFechasDisponibles(
-                input.selected_staff,
-                input.selected_service,
-                input.selected_location
-            );
+            // Crear una instancia de Conversation
+            const conversation = new Conversation();
+            conversation.salonID = input.selected_location;
 
-            console.log("Días disponibles obtenidos:", diasDisponibles);
+            const fechasDisponibles = [];
+            const fechaActual = moment().tz("Europe/Madrid");
+            
+            // Obtener el nombre del peluquero
+            const peluquero = peluqueros.find(p => p.peluqueroID === input.selected_staff);
+            if (!peluquero) {
+                throw new Error("Peluquero no encontrado");
+            }
+
+            // Buscar disponibilidad para los próximos 14 días
+            for (let i = 0; i <= 14; i++) {
+                const fechaConsulta = fechaActual.clone().add(i, 'days');
+                const fechaFormateada = fechaConsulta.format('YYYY-MM-DD');
+                
+                try {
+                    const comando = `CONSULTHOR ${fechaFormateada} ${peluquero.name}`;
+                    const resultado = await conversation.ProcesarConsultarHorario(comando);
+                    
+                    if (resultado && resultado.message) {
+                        if (resultado.message.includes(`trabaja de`)) {
+                            const horarioMatch = resultado.message.match(/trabaja de (\d{2}:\d{2}) a (\d{2}:\d{2})/);
+                            
+                            if (horarioMatch) {
+                                fechasDisponibles.push({
+                                    id: fechaFormateada,
+                                    title: fechaConsulta.format('DD/MM/YYYY'),
+                                    has_availability: true,
+                                    available_hours: [{
+                                        inicio: horarioMatch[1],
+                                        fin: horarioMatch[2]
+                                    }]
+                                });
+                            }
+                        } else if (resultado.message.includes(`tiene los siguientes horarios disponibles`)) {
+                            const fechaActualPattern = new RegExp(`\\*(${fechaConsulta.format('DD/MM/YYYY')})\\*: de (\\d{2}:\\d{2}) a (\\d{2}:\\d{2})`);
+                            const match = resultado.message.match(fechaActualPattern);
+                            
+                            if (match) {
+                                fechasDisponibles.push({
+                                    id: fechaFormateada,
+                                    title: match[1],
+                                    has_availability: true,
+                                    available_hours: [{
+                                        inicio: match[2],
+                                        fin: match[3]
+                                    }]
+                                });
+                            }
+                        }
+                    }
+                } catch (innerError) {
+                    console.error(`Error procesando fecha ${fechaFormateada}:`, innerError);
+                    continue;
+                }
+            }
+
+            console.log("Días disponibles obtenidos:", fechasDisponibles);
 
             return {
                 success: true,
                 nextScreen: "DATE_SELECTION",
                 data: {
-                    available_dates: diasDisponibles,
+                    available_dates: fechasDisponibles,
                     is_date_enabled: true,
                     selected_staff: input.selected_staff,
                     selected_service: input.selected_service,
