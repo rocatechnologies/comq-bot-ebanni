@@ -1211,6 +1211,9 @@ class FlowHandler {
   async handleSTAFF_SELECTION(input) {
     console.log("=== Inicio de STAFF_SELECTION ===");
     console.log("Input recibido:", input);
+
+    console.log("FlowHandler.lastSelectedLocation:", FlowHandler.lastSelectedLocation);
+    console.log("FlowHandler.lastSelectedService:",FlowHandler.lastSelectedService);
     
     let responseData = {
         available_dates: [{
