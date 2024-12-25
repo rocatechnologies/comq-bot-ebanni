@@ -968,13 +968,6 @@ const encryptResponse = (response, aesKeyBuffer, initialVectorBuffer) => {
   }
 };
 
-// Variables para caché
-let cachedServices = null;
-let cachedLocations = null;
-let lastCacheUpdate = null;
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutos
-const ENDPOINT_TIMEOUT = 30000; // 30 segundos
-
 /**
  * Clase que maneja la lógica de pantallas del Flow
  */
@@ -1573,6 +1566,16 @@ app.post("/flow/data", async (req, res) => {
     const { decryptedBody } = decryptResult;
     aesKeyBuffer = decryptResult.aesKeyBuffer;
     initialVectorBuffer = decryptResult.initialVectorBuffer;
+
+     // Respuesta rápida para pings
+     if (decryptedBody.action === 'ping') {
+      console.log("PING de FLOW/DATA")
+      return res.send(encryptResponse(
+        { data: { status: "active" } },
+        decryptResult.aesKeyBuffer,
+        decryptResult.initialVectorBuffer
+      ));
+    }
     
     console.log("Cuerpo descifrado:", JSON.stringify(decryptedBody, null, 2));
     
