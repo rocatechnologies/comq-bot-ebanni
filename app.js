@@ -1278,7 +1278,7 @@ async handleDATE_SELECTION(input) {
       try {
           // Crear una instancia de Conversation
           const conversation = new Conversation();
-          conversation.salonID = input.selected_location;
+          conversation.salonID = FlowHandler.lastSelectedLocation;
 
           const fechasDisponibles = [];
           const fechaActual = moment().tz("Europe/Madrid");
