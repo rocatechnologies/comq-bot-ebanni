@@ -839,7 +839,7 @@ class FlowEndpointException extends Error {
 
 const decryptRequest = (body) => {
   //console.log('==========================================');
-  console.log('INICIANDO PROCESO DE DESCIFRADO');
+  //console.log('INICIANDO PROCESO DE DESCIFRADO');
   //console.log('------------------------------------------');
   
   // Log de variables de entorno
@@ -936,7 +936,7 @@ const decryptRequest = (body) => {
 };
 
 const encryptResponse = (response, aesKeyBuffer, initialVectorBuffer) => {
-  console.log('Iniciando encriptación de respuesta...');
+  //console.log('Iniciando encriptación de respuesta...');
   //console.log("response de encryptResponse:", encryptResponse);
   try {
       // Invertir el vector inicial
