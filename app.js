@@ -975,6 +975,7 @@ const encryptResponse = (response, aesKeyBuffer, initialVectorBuffer) => {
 class FlowHandler {
   static lastSelectedService = null;
   static lastSelectedLocation = null;
+  static lastSelectedStaff = null;
 
   constructor() {
     this.ROUTING_MODEL = {
@@ -1202,8 +1203,8 @@ class FlowHandler {
       success: true, 
       data: {
           ...responseData,
-          selected_service: this.lastSelectedService,
-          selected_location: this.lastSelectedLocation
+          selected_service: FlowHandler.lastSelectedService,
+          selected_location: FlowHandler.lastSelectedLocation
       }
     };
   }
@@ -1214,6 +1215,8 @@ class FlowHandler {
 
     console.log("FlowHandler.lastSelectedLocation:", FlowHandler.lastSelectedLocation);
     console.log("FlowHandler.lastSelectedService:",FlowHandler.lastSelectedService);
+
+    FlowHandler.lastSelectedStaff = input.staff;
     
     let responseData = {
         available_dates: [{
@@ -1221,7 +1224,7 @@ class FlowHandler {
             title: "Cargando fechas disponibles..."
         }],
         is_date_enabled: false,
-        selected_staff: input.staff,
+        selected_staff: FlowHandler.lastSelectedStaff,
         selected_service: FlowHandler.lastSelectedService,
         selected_location: FlowHandler.lastSelectedLocation,
         loading: true
@@ -1234,8 +1237,9 @@ class FlowHandler {
             nextScreen: "DATE_SELECTION",
             data: {
               ...responseData,
-              selected_service: this.lastSelectedService,
-              selected_location: this.lastSelectedLocation
+              selected_staff: FlowHandler.lastSelectedStaff,
+              selected_service: FlowHandler.lastSelectedService,
+              selected_location: FlowHandler.lastSelectedLocation
           }
         };
     }
@@ -1247,7 +1251,7 @@ class FlowHandler {
             title: p.name
         })),
         is_staff_enabled: true,
-        selected_staff: input.staff,
+        selected_staff: FlowHandler.lastSelectedStaff,
         selected_service: FlowHandler.lastSelectedService,
         selected_location: FlowHandler.lastSelectedLocation,
         error: false
@@ -1258,8 +1262,9 @@ class FlowHandler {
         screen: "STAFF_SELECTION",
         data: {
           ...responseData,
-          selected_service: this.lastSelectedService,
-          selected_location: this.lastSelectedLocation
+          selected_staff: FlowHandler.lastSelectedStaff,
+          selected_service: FlowHandler.lastSelectedService,
+          selected_location: FlowHandler.lastSelectedLocation
       }
     };
   }
@@ -1281,7 +1286,7 @@ async handleDATE_SELECTION(input) {
           console.log("input.selected_staff:", input.selected_staff);
           
           // Obtener el nombre del peluquero
-          const peluquero = peluqueros.find(p => p.peluqueroID === input.selected_staff);
+          const peluquero = peluqueros.find(p => p.peluqueroID === FlowHandler.lastSelectedStaff);
           if (!peluquero) {
               throw new Error("Peluquero no encontrado");
           }
