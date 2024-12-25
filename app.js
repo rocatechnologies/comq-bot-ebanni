@@ -976,6 +976,7 @@ class FlowHandler {
   static lastSelectedService = null;
   static lastSelectedLocation = null;
   static lastSelectedStaff = null;
+  static lastSelectedDate = null;
 
   constructor() {
     this.ROUTING_MODEL = {
@@ -1214,200 +1215,152 @@ class FlowHandler {
     console.log("Input recibido:", input);
 
     console.log("FlowHandler.lastSelectedLocation:", FlowHandler.lastSelectedLocation);
-    console.log("FlowHandler.lastSelectedService:",FlowHandler.lastSelectedService);
-
-    FlowHandler.lastSelectedStaff = input.staff;
-    
-    let responseData = {
-        available_dates: [{
-            id: "loading",
-            title: "Cargando fechas disponibles..."
-        }],
-        is_date_enabled: false,
-        selected_staff: FlowHandler.lastSelectedStaff,
-        selected_service: FlowHandler.lastSelectedService,
-        selected_location: FlowHandler.lastSelectedLocation,
-        loading: true
-    };
+    console.log("FlowHandler.lastSelectedService:", FlowHandler.lastSelectedService);
 
     // Si es una solicitud para cambiar a la pantalla de fechas
     if (input.action === "data_exchange" && input.staff) {
-        return {
-            success: true,
-            nextScreen: "DATE_SELECTION",
-            data: {
-              ...responseData,
-              selected_staff: FlowHandler.lastSelectedStaff,
-              selected_service: FlowHandler.lastSelectedService,
-              selected_location: FlowHandler.lastSelectedLocation
-          }
-        };
+        FlowHandler.lastSelectedStaff = input.staff;
+        
+        try {
+            // Crear una instancia de Conversation
+            const conversation = new Conversation();
+            conversation.salonID = FlowHandler.lastSelectedLocation;
+
+            const fechasDisponibles = [];
+            const fechaActual = moment().tz("Europe/Madrid");
+            
+            // Obtener el nombre del peluquero
+            const peluquero = peluqueros.find(p => p.peluqueroID === FlowHandler.lastSelectedStaff);
+            if (!peluquero) {
+                throw new Error("Peluquero no encontrado");
+            }
+
+            // Buscar disponibilidad para los próximos 14 días
+            for (let i = 0; i <= 14; i++) {
+                const fechaConsulta = fechaActual.clone().add(i, 'days');
+                const fechaFormateada = fechaConsulta.format('YYYY-MM-DD');
+                
+                try {
+                    const comando = `CONSULTHOR ${fechaFormateada} ${peluquero.name}`;
+                    const resultado = await conversation.ProcesarConsultarHorario(comando);
+                    
+                    if (resultado && resultado.message) {
+                        if (resultado.message.includes(`trabaja de`)) {
+                            const horarioMatch = resultado.message.match(/trabaja de (\d{2}:\d{2}) a (\d{2}:\d{2})/);
+                            
+                            if (horarioMatch) {
+                                fechasDisponibles.push({
+                                    id: fechaFormateada,
+                                    title: fechaConsulta.format('DD/MM/YYYY')
+                                });
+                            }
+                        } else if (resultado.message.includes(`tiene los siguientes horarios disponibles`)) {
+                            const fechaActualPattern = new RegExp(`\\*(${fechaConsulta.format('DD/MM/YYYY')})\\*: de (\\d{2}:\\d{2}) a (\\d{2}:\\d{2})`);
+                            const match = resultado.message.match(fechaActualPattern);
+                            
+                            if (match) {
+                                fechasDisponibles.push({
+                                    id: fechaFormateada,
+                                    title: match[1]
+                                });
+                            }
+                        }
+                    }
+                } catch (innerError) {
+                    console.error(`Error procesando fecha ${fechaFormateada}:`, innerError);
+                    continue;
+                }
+            }
+
+            return {
+                success: true,
+                nextScreen: "DATE_SELECTION",
+                data: {
+                    available_dates: fechasDisponibles.length > 0 ? fechasDisponibles : [{
+                        id: "no-dates",
+                        title: "No hay fechas disponibles"
+                    }],
+                    is_date_enabled: fechasDisponibles.length > 0,
+                    selected_staff: FlowHandler.lastSelectedStaff,
+                    selected_service: FlowHandler.lastSelectedService,
+                    selected_location: FlowHandler.lastSelectedLocation,
+                    loading: false
+                }
+            };
+
+        } catch (error) {
+            console.error('Error al obtener fechas disponibles:', error);
+            return {
+                success: false,
+                data: {
+                    available_dates: [{
+                        id: "error",
+                        title: "Error al cargar fechas"
+                    }],
+                    error: true,
+                    error_message: "Error al obtener fechas disponibles: " + error.message,
+                    selected_staff: FlowHandler.lastSelectedStaff,
+                    selected_service: FlowHandler.lastSelectedService,
+                    selected_location: FlowHandler.lastSelectedLocation,
+                    loading: false
+                }
+            };
+        }
     }
 
     // Para solicitudes regulares
-    responseData = {
-        available_staff: peluqueros.map(p => ({
-            id: p.peluqueroID,
-            title: p.name
-        })),
-        is_staff_enabled: true,
-        selected_staff: FlowHandler.lastSelectedStaff,
-        selected_service: FlowHandler.lastSelectedService,
-        selected_location: FlowHandler.lastSelectedLocation,
-        error: false
-    };
-
     return {
         success: true,
         screen: "STAFF_SELECTION",
         data: {
-          ...responseData,
-          selected_staff: FlowHandler.lastSelectedStaff,
-          selected_service: FlowHandler.lastSelectedService,
-          selected_location: FlowHandler.lastSelectedLocation
-      }
+            available_staff: peluqueros.map(p => ({
+                id: p.peluqueroID,
+                title: p.name
+            })),
+            is_staff_enabled: true,
+            selected_staff: FlowHandler.lastSelectedStaff,
+            selected_service: FlowHandler.lastSelectedService,
+            selected_location: FlowHandler.lastSelectedLocation,
+            error: false
+        }
     };
-  }
+}
 
 async handleDATE_SELECTION(input) {
-  console.log("\n=== Inicio de DATE_SELECTION ===");
-  console.log("Input recibido:", input);
+    console.log("\n=== Inicio de DATE_SELECTION ===");
+    console.log("Input recibido:", input);
 
-  // Si es una solicitud inicial o de actualización
-  if (input.action === "data_exchange") {
-      try {
-          // Crear una instancia de Conversation
-          const conversation = new Conversation();
-          conversation.salonID = FlowHandler.lastSelectedLocation;
+    // Si hay una fecha seleccionada, avanzar a la siguiente pantalla
+    if (input.date) {
+      FlowHandler.lastSelectedDate = input.date;
+        return {
+            success: true,
+            nextScreen: "TIME_SELECTION",
+            data: {
+                selected_date: FlowHandler.lastSelectedDate,
+                selected_staff: FlowHandler.lastSelectedStaff,
+                selected_service: FlowHandler.lastSelectedService,
+                selected_location: FlowHandler.lastSelectedLocation
+            }
+        };
+    }
 
-          const fechasDisponibles = [];
-          const fechaActual = moment().tz("Europe/Madrid");
-          
-          console.log("input.selected_staff:", input.selected_staff);
-          
-          // Obtener el nombre del peluquero
-          const peluquero = peluqueros.find(p => p.peluqueroID === FlowHandler.lastSelectedStaff);
-          if (!peluquero) {
-              throw new Error("Peluquero no encontrado");
-          }
-
-          // Buscar disponibilidad para los próximos 14 días
-          for (let i = 0; i <= 14; i++) {
-              const fechaConsulta = fechaActual.clone().add(i, 'days');
-              const fechaFormateada = fechaConsulta.format('YYYY-MM-DD');
-              
-              try {
-                  const comando = `CONSULTHOR ${fechaFormateada} ${peluquero.name}`;
-                  const resultado = await conversation.ProcesarConsultarHorario(comando);
-                  
-                  if (resultado && resultado.message) {
-                      if (resultado.message.includes(`trabaja de`)) {
-                          const horarioMatch = resultado.message.match(/trabaja de (\d{2}:\d{2}) a (\d{2}:\d{2})/);
-                          
-                          if (horarioMatch) {
-                              fechasDisponibles.push({
-                                  id: fechaFormateada,
-                                  title: fechaConsulta.format('DD/MM/YYYY')
-                              });
-                          }
-                      } else if (resultado.message.includes(`tiene los siguientes horarios disponibles`)) {
-                          const fechaActualPattern = new RegExp(`\\*(${fechaConsulta.format('DD/MM/YYYY')})\\*: de (\\d{2}:\\d{2}) a (\\d{2}:\\d{2})`);
-                          const match = resultado.message.match(fechaActualPattern);
-                          
-                          if (match) {
-                              fechasDisponibles.push({
-                                  id: fechaFormateada,
-                                  title: match[1]
-                              });
-                          }
-                      }
-                  }
-              } catch (innerError) {
-                  console.error(`Error procesando fecha ${fechaFormateada}:`, innerError);
-                  continue;
-              }
-          }
-
-          // Si no encontramos fechas disponibles
-          if (fechasDisponibles.length === 0) {
-              return {
-                  success: true,
-                  screen: "DATE_SELECTION",
-                  data: {
-                      available_dates: [{
-                          id: "no-dates",
-                          title: "No hay fechas disponibles"
-                      }],
-                      is_date_enabled: false,
-                      selected_staff: input.selected_staff,
-                      selected_service: input.selected_service,
-                      selected_location: input.selected_location,
-                      loading: false
-                  }
-              };
-          }
-
-          return {
-              success: true,
-              screen: "DATE_SELECTION",
-              data: {
-                  available_dates: fechasDisponibles,
-                  is_date_enabled: true,
-                  selected_staff: input.selected_staff,
-                  selected_service: input.selected_service,
-                  selected_location: input.selected_location,
-                  loading: false
-              }
-          };
-      } catch (error) {
-          console.error('Error al obtener fechas disponibles:', error);
-          return {
-              success: false,
-              data: {
-                  available_dates: [{
-                      id: "error",
-                      title: "Error al cargar fechas"
-                  }],
-                  error: true,
-                  error_message: "Error al obtener fechas disponibles: " + error.message,
-                  selected_staff: input.selected_staff,
-                  selected_service: input.selected_service,
-                  selected_location: input.selected_location,
-                  loading: false
-              }
-          };
-      }
-  }
-
-  // Si hay una fecha seleccionada
-  if (input.date) {
-      return {
-          success: true,
-          nextScreen: "TIME_SELECTION",
-          data: {
-              selected_date: input.date,
-              selected_staff: input.selected_staff,
-              selected_service: input.selected_service,
-              selected_location: input.selected_location
-          }
-      };
-  }
-
-  return {
-      success: true,
-      screen: "DATE_SELECTION",
-      data: {
-          available_dates: [{
-              id: "loading",
-              title: "Cargando fechas disponibles..."
-          }],
-          is_date_enabled: false,
-          selected_staff: input.selected_staff,
-          selected_service: input.selected_service,
-          selected_location: input.selected_location,
-          loading: true
-      }
-  };
+    // Si es una solicitud de actualización, mantener los datos existentes
+    return {
+        success: true,
+        screen: "DATE_SELECTION",
+        data: {
+            available_dates: input.available_dates || [{
+                id: "loading",
+                title: "Cargando fechas disponibles..."
+            }],
+            is_date_enabled: input.is_date_enabled || false,
+            selected_staff: FlowHandler.lastSelectedStaff,
+                selected_service: FlowHandler.lastSelectedService,
+                selected_location: FlowHandler.lastSelectedLocation,
+            loading: input.loading || true
+        }
+    };
 }
 
 async handleTIME_SELECTION(input) {
