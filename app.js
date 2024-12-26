@@ -1319,6 +1319,7 @@ class FlowHandler {
   async handleSTAFF_SELECTION(input) {
     console.log("=== Inicio de STAFF_SELECTION ===");
     console.log("FlowHandler.lastSelectedLocation:", FlowHandler.lastSelectedLocation);
+    console.log("FlowHandler.lastSelectedStaff:", FlowHandler.lastSelectedStaff);
 
     if (input.action === "data_exchange") {
 
