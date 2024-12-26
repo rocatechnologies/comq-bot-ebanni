@@ -1089,7 +1089,7 @@ class FlowHandler {
       }));
   }
 
-getAvailableDates(staffId, locationId) {
+/*getAvailableDates(staffId, locationId) {
     const fechasDisponibles = [];
     const fechaActual = moment().tz("Europe/Madrid");
     
@@ -1140,7 +1140,7 @@ getAvailableDates(staffId, locationId) {
     }
 
     return fechasDisponibles;
-}
+}*/
 
   async handleWELCOME(input) {
     console.log("=== Inicio de WELCOME ===");
