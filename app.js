@@ -1236,7 +1236,7 @@ class FlowHandler {
             }
 
             // Buscar disponibilidad para los próximos 14 días
-            for (let i = 0; i <= 14; i++) {
+            for (let i = 0; i <= 7; i++) {
                 const fechaConsulta = fechaActual.clone().add(i, 'days');
                 const fechaFormateada = fechaConsulta.format('YYYY-MM-DD');
                 
@@ -1271,6 +1271,9 @@ class FlowHandler {
                     continue;
                 }
             }
+
+            // Pequeña pausa para asegurar que los logs se muestren
+            await new Promise(resolve => setTimeout(resolve, 500));
 
             return {
                 success: true,
@@ -1523,7 +1526,7 @@ app.post("/flow/data", async (req, res) => {
   try {
     // 1. Descifrar la petición
     const decryptResult = decryptRequest(req.body);
-    console.log("decryptResult:", decryptResult);
+    //console.log("decryptResult:", decryptResult);
     const { decryptedBody } = decryptResult;
     aesKeyBuffer = decryptResult.aesKeyBuffer;
     initialVectorBuffer = decryptResult.initialVectorBuffer;
