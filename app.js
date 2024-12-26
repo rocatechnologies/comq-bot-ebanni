@@ -3467,8 +3467,8 @@ class Conversation {
         console.log("Iniciando procesamiento de flow...");
         
         // Iniciar precarga de datos en segundo plano
-        flowCacheManager.preloadAllData()
-            .catch(error => console.error('Error en precarga de datos:', error));
+        //flowCacheManager.preloadAllData()
+           // .catch(error => console.error('Error en precarga de datos:', error));
         
         // Datos para la plantilla del flow
         const data = {
