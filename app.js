@@ -833,102 +833,67 @@ app.get("/full-history/:from", async (req, res) => {
   }
 });
 
-class DateAvailabilityManager {
+class FlowCacheManager {
   constructor() {
-      this.preloadedData = new Map();
+      this.cache = new Map();
       this.preloadPromises = new Map();
-      this.currentLocation = null;
+      this.CACHE_DURATION = 1000 * 60 * 30; // 30 minutos
   }
 
   // Verificar si un resultado está en caché y es válido
-  static isValidCache(cacheEntry) {
+  isValidCache(cacheEntry) {
       if (!cacheEntry) return false;
-      return (Date.now() - cacheEntry.timestamp) < CACHE_EXPIRY;
+      return (Date.now() - cacheEntry.timestamp) < this.CACHE_DURATION;
   }
 
-  // Consultar disponibilidad para un día específico
-  async checkDayAvailability(staffId, date, peluquero) {
-      // Usar el locationId de FlowHandler
-      const locationId = FlowHandler.lastSelectedLocation;
-      if (!locationId) {
-          throw new Error("No hay centro seleccionado");
-      }
-
-      const cacheKey = `${staffId}_${locationId}_${date.format('YYYY-MM-DD')}`;
+  // Obtener datos de los centros
+  async getCentros() {
+      const cacheKey = 'centros';
+      const cachedData = this.cache.get(cacheKey);
       
-      // Verificar caché
-      const cachedResult = availabilityCache.get(cacheKey);
-      if (DateAvailabilityManager.isValidCache(cachedResult)) {
-          return cachedResult.data;
+      if (this.isValidCache(cachedData)) {
+          return cachedData.data;
       }
 
+      const centrosData = salones
+          .filter(s => ["Nervión Caballeros", "Nervión Señoras", "Duque", "Sevilla Este"].includes(s.nombre))
+          .map(s => ({
+              id: s.salonID,
+              title: s.nombre,
+              description: s.address,
+              staff: peluqueros.filter(p => p.salonID === s.salonID)
+          }));
+
+      this.cache.set(cacheKey, {
+          timestamp: Date.now(),
+          data: centrosData
+      });
+
+      return centrosData;
+  }
+
+  // Precargar datos para todos los centros y sus empleados
+  async preloadAllData() {
       try {
-          // Crear nueva instancia de Conversation con el salonID correcto
-          const conversation = new Conversation();
-          conversation.salonID = locationId;
+          console.log("Iniciando precarga de datos para todos los centros...");
+          const centros = await this.getCentros();
+          
+          const preloadPromises = centros.flatMap(centro => 
+              centro.staff.map(empleado => 
+                  this.preloadStaffAvailability(empleado.peluqueroID, centro.id)
+              )
+          );
 
-          const fechaFormateada = date.format('YYYY-MM-DD');
-          const comando = `CONSULTHOR ${fechaFormateada} ${peluquero.name}`;
-          const resultado = await conversation.ProcesarConsultarHorario(comando);
-
-          let isAvailable = false;
-          if (resultado && resultado.message) {
-              isAvailable = resultado.message.includes("trabaja de") || 
-                          (resultado.message.includes("tiene los siguientes horarios disponibles") &&
-                           new RegExp(`\\*(${date.format('DD/MM/YYYY')})\\*:`).test(resultado.message));
-          }
-
-          const availabilityData = isAvailable ? {
-              id: fechaFormateada,
-              title: date.format('DD/MM/YYYY')
-          } : null;
-
-          // Guardar en caché
-          availabilityCache.set(cacheKey, {
-              timestamp: Date.now(),
-              data: availabilityData
-          });
-
-          return availabilityData;
+          await Promise.allSettled(preloadPromises);
+          console.log("Precarga completada para todos los centros");
       } catch (error) {
-          console.error(`Error checking availability for ${date.format('YYYY-MM-DD')}:`, error);
-          return null;
+          console.error("Error en la precarga general:", error);
       }
   }
 
-  // Iniciar precarga para todos los empleados de un centro
-  async preloadLocationData() {
-      const locationId = FlowHandler.lastSelectedLocation;
-      if (!locationId) {
-          console.error("No hay centro seleccionado para precargar");
-          return;
-      }
-
-      if (this.currentLocation === locationId) {
-          return; // Ya estamos precargando para este centro
-      }
-
-      this.currentLocation = locationId;
-      console.log(`Iniciando precarga para el centro ${locationId}`);
-
-      // Obtener empleados del centro
-      const staffDelCentro = peluqueros.filter(p => p.salonID === locationId);
-      
-      // Iniciar precarga para cada empleado
-      for (const empleado of staffDelCentro) {
-          this.preloadStaffData(empleado.peluqueroID)
-              .catch(error => console.error(`Error precargando datos para ${empleado.name}:`, error));
-      }
-  }
-
-  // Precargar datos para un empleado específico
-  async preloadStaffData(staffId) {
-      const locationId = FlowHandler.lastSelectedLocation;
-      if (!locationId) {
-          throw new Error("No hay centro seleccionado");
-      }
-
-      const cacheKey = `${staffId}_${locationId}`;
+  // Precargar disponibilidad para un empleado específico
+  async preloadStaffAvailability(staffId, locationId) {
+      const cacheKey = `availability_${staffId}_${locationId}`;
       
       // Si ya hay una precarga en proceso, retornar la promesa existente
       if (this.preloadPromises.has(cacheKey)) {
@@ -943,62 +908,85 @@ class DateAvailabilityManager {
               const fechaActual = moment().tz("Europe/Madrid");
               const promises = [];
 
-              // Crear promesas para los próximos 7 días
+              // Crear instancia de Conversation
+              const conversation = new Conversation();
+              conversation.salonID = locationId;
+
+              // Consultar disponibilidad para los próximos 7 días
               for (let i = 0; i <= 7; i++) {
                   const fechaConsulta = fechaActual.clone().add(i, 'days');
-                  promises.push(
-                      this.checkDayAvailability(
-                          staffId,
-                          fechaConsulta,
-                          peluquero
-                      )
-                  );
+                  const fechaFormateada = fechaConsulta.format('YYYY-MM-DD');
+                  
+                  promises.push((async () => {
+                      try {
+                          const comando = `CONSULTHOR ${fechaFormateada} ${peluquero.name}`;
+                          const resultado = await conversation.ProcesarConsultarHorario(comando);
+                          
+                          if (resultado && resultado.message) {
+                              const isAvailable = resultado.message.includes("trabaja de") || 
+                                  (resultado.message.includes("tiene los siguientes horarios disponibles") &&
+                                   new RegExp(`\\*(${fechaConsulta.format('DD/MM/YYYY')})\\*:`).test(resultado.message));
+
+                              if (isAvailable) {
+                                  return {
+                                      id: fechaFormateada,
+                                      title: fechaConsulta.format('DD/MM/YYYY')
+                                  };
+                              }
+                          }
+                          return null;
+                      } catch (error) {
+                          console.error(`Error consultando fecha ${fechaFormateada}:`, error);
+                          return null;
+                      }
+                  })());
               }
 
-              // Ejecutar todas las consultas en paralelo
               const results = await Promise.all(promises);
-
-              // Filtrar y almacenar solo los días disponibles
               const availableDates = results.filter(result => result !== null);
-              this.preloadedData.set(cacheKey, {
+
+              this.cache.set(cacheKey, {
                   timestamp: Date.now(),
                   data: availableDates
               });
 
               return availableDates;
           } catch (error) {
-              console.error('Error en precarga:', error);
+              console.error('Error en precarga de disponibilidad:', error);
               throw error;
           } finally {
-              // Limpiar la promesa de precarga
               this.preloadPromises.delete(cacheKey);
           }
       })();
 
-      // Almacenar la promesa de precarga
       this.preloadPromises.set(cacheKey, preloadPromise);
       return preloadPromise;
   }
 
-  // Obtener fechas disponibles
-  async getAvailableDates(staffId) {
-      const locationId = FlowHandler.lastSelectedLocation;
-      if (!locationId) {
-          throw new Error("No hay centro seleccionado");
+  // Obtener disponibilidad de un empleado (desde caché o actualizando)
+  async getStaffAvailability(staffId, locationId) {
+      const cacheKey = `availability_${staffId}_${locationId}`;
+      const cachedData = this.cache.get(cacheKey);
+
+      if (this.isValidCache(cachedData)) {
+          return cachedData.data;
       }
 
-      const cacheKey = `${staffId}_${locationId}`;
-      const preloadedEntry = this.preloadedData.get(cacheKey);
+      return this.preloadStaffAvailability(staffId, locationId);
+  }
 
-      // Si hay datos precargados válidos, usarlos
-      if (preloadedEntry && DateAvailabilityManager.isValidCache(preloadedEntry)) {
-          return preloadedEntry.data;
+  // Limpiar caché antigua
+  cleanOldCache() {
+      for (const [key, value] of this.cache.entries()) {
+          if (!this.isValidCache(value)) {
+              this.cache.delete(key);
+          }
       }
-
-      // Si no hay datos precargados, iniciar una nueva precarga
-      return this.preloadStaffData(staffId);
   }
 }
+
+// Exportar una instancia única
+const flowCacheManager = new FlowCacheManager();
 
 // Singleton para gestionar la disponibilidad
 const dateManager = new DateAvailabilityManager();
@@ -1168,26 +1156,23 @@ class FlowHandler {
 
   async processRequest(decryptedBody) {
     console.log("\n=== PROCESANDO SOLICITUD DE FLOW ===");
-    //console.log("Datos recibidos:", decryptedBody);
 
     const action = decryptedBody.action || '';
     const screen = decryptedBody.screen || '';
     const data = {
-      ...decryptedBody.data,           // Incluir todos los datos del objeto data
-      action: decryptedBody.action     // Añadir action aquí también para mantener compatibilidad
+      ...decryptedBody.data,
+      action: decryptedBody.action
     };
 
-    // Log para depuración
     console.log("Datos extraídos completos:", {
       action,
       screen,
       data,
       selectedService: data.selected_service,
       selectedLocation: data.selected_location
-  });
+    });
 
     try {
-      // Manejar casos especiales primero
       if (action === "ping") {
         return { data: { status: "active" } };
       }
@@ -1200,23 +1185,20 @@ class FlowHandler {
         };
       }
 
-      // Procesar la solicitud según la pantalla actual
       const result = await this.handleNavigation(screen, data);
 
-      // En caso de error, mantener la pantalla actual
       if (!result.success) {
         return {
-            version: "3.0",
-            screen: screen, // Mantenemos la pantalla actual
-            data: {
-                ...result.data,
-                error: true,
-                error_message: result.error
-            }
+          version: "3.0",
+          screen: screen,
+          data: {
+            ...result.data,
+            error: true,
+            error_message: result.error
+          }
         };
-    }
+      }
 
-      // Construir la respuesta en el formato esperado
       return {
         version: "3.0",
         screen: result.nextScreen || screen,
@@ -1229,93 +1211,41 @@ class FlowHandler {
 
     } catch (error) {
       console.error("Error procesando request:", error);
-        // En caso de error, mantener la pantalla actual
-        return {
-            version: "3.0",
-            screen: screen, // Mantenemos la pantalla actual
-            data: {
-                error: true,
-                error_message: error.message
-            }
-        };
+      return {
+        version: "3.0",
+        screen: screen,
+        data: {
+          error: true,
+          error_message: error.message
+        }
+      };
     }
   }
 
-  getServiciosDisponibles() {
+  async getServiciosDisponibles() {
     return servicios.map(s => ({
       id: s.servicioID,
       title: s.servicio
     }));
   }
 
-  // Método auxiliar para obtener la información completa del servicio
   _getServicioCompleto(servicioId) {
     return servicios.find(s => s.servicioID === servicioId);
   }
 
-  getCentrosDisponibles() {
-    return salones
-      .filter(s => ["Nervión Caballeros", "Nervión Señoras", "Duque", "Sevilla Este"]
-        .includes(s.nombre))
-      .map(s => ({
-        id: s.salonID,
-        title: s.nombre,
-        description: s.address
+  async getCentrosDisponibles() {
+    try {
+      const centros = await flowCacheManager.getCentros();
+      return centros.map(c => ({
+        id: c.id,
+        title: c.title,
+        description: c.description
       }));
+    } catch (error) {
+      console.error('Error obteniendo centros:', error);
+      throw error;
+    }
   }
-
-/*getAvailableDates(staffId, locationId) {
-    const fechasDisponibles = [];
-    const fechaActual = moment().tz("Europe/Madrid");
-    
-    // Obtener el peluquero
-    const peluquero = peluqueros.find(p => p.peluqueroID === staffId);
-    if (!peluquero) {
-        throw new Error("Peluquero no encontrado");
-    }
-
-    // Crear instancia de Conversation
-    const conversation = new Conversation();
-    conversation.salonID = locationId;
-
-    // Buscar disponibilidad para los próximos 7 días
-    for (let i = 0; i <= 7; i++) {
-        const fechaConsulta = fechaActual.clone().add(i, 'days');
-        const fechaFormateada = fechaConsulta.format('YYYY-MM-DD');
-        
-        try {
-            const comando = `CONSULTHOR ${fechaFormateada} ${peluquero.name}`;
-            const resultado = await conversation.ProcesarConsultarHorario(comando);
-            
-            if (resultado && resultado.message) {
-                // Caso 1: Mensaje de "trabaja de X a Y"
-                if (resultado.message.includes("trabaja de")) {
-                    fechasDisponibles.push({
-                        id: fechaFormateada,
-                        title: fechaConsulta.format('DD/MM/YYYY')
-                    });
-                    continue;
-                }
-                
-                // Caso 2: Mensaje de "tiene los siguientes horarios disponibles"
-                if (resultado.message.includes("tiene los siguientes horarios disponibles")) {
-                    const fechaPattern = new RegExp(`\\*(${fechaConsulta.format('DD/MM/YYYY')})\\*:`);
-                    if (fechaPattern.test(resultado.message)) {
-                        fechasDisponibles.push({
-                            id: fechaFormateada,
-                            title: fechaConsulta.format('DD/MM/YYYY')
-                        });
-                    }
-                }
-            }
-        } catch (error) {
-            console.error(`Error procesando fecha ${fechaFormateada}:`, error);
-            continue;
-        }
-    }
-
-    return fechasDisponibles;
-}*/
 
   async handleWELCOME(input) {
     console.log("=== Inicio de WELCOME ===");
@@ -1324,8 +1254,8 @@ class FlowHandler {
         success: true,
         nextScreen: "SERVICE_AND_LOCATION",
         data: {
-          services: this.getServiciosDisponibles(),
-          locations: this.getCentrosDisponibles(),
+          services: await this.getServiciosDisponibles(),
+          locations: await this.getCentrosDisponibles(),
           is_services_enabled: true,
           is_location_enabled: true
         }
@@ -1334,162 +1264,193 @@ class FlowHandler {
     return { success: true, data: {} };
   }
 
-  // Modificación del método handleSERVICE_AND_LOCATION
-async handleSERVICE_AND_LOCATION(input) {
-  console.log("=== Inicio de SERVICE_AND_LOCATION ===");
-  console.log("input.action:", input.action);
-  console.log("input.service:", input.service);
-  console.log("input.location:", input.location);
+  async handleSERVICE_AND_LOCATION(input) {
+    console.log("=== Inicio de SERVICE_AND_LOCATION ===");
+    console.log("input.action:", input.action);
+    console.log("input.service:", input.service);
+    console.log("input.location:", input.location);
 
-  if (input.action === "data_exchange" && input.service && input.location) {
-      // Guardar en las variables estáticas
+    if (input.action === "data_exchange" && input.service && input.location) {
       FlowHandler.lastSelectedService = input.service;
       FlowHandler.lastSelectedLocation = input.location;
 
-      const staffDelCentro = peluqueros.filter(p => p.salonID === input.location);
+      try {
+        const centros = await flowCacheManager.getCentros();
+        const centroSeleccionado = centros.find(c => c.id === input.location);
+        
+        if (!centroSeleccionado) {
+          throw new Error("Centro no encontrado");
+        }
 
-      // Iniciar la precarga de datos para el centro seleccionado
-      dateManager.preloadLocationData()
-          .catch(error => console.error('Error en precarga del centro:', error));
-
-      return {
+        return {
           success: true,
           nextScreen: "STAFF_SELECTION",
           data: {
-              available_staff: staffDelCentro.map(p => ({
-                  id: p.peluqueroID,
-                  title: p.name
-              })),
-              is_staff_enabled: true,
-              selected_service: FlowHandler.lastSelectedService,
-              selected_location: FlowHandler.lastSelectedLocation
+            available_staff: centroSeleccionado.staff.map(p => ({
+              id: p.peluqueroID,
+              title: p.name
+            })),
+            is_staff_enabled: true,
+            selected_service: FlowHandler.lastSelectedService,
+            selected_location: FlowHandler.lastSelectedLocation
           }
-      };
-  }
-
-  return { 
-      success: true, 
-      data: {
-          selected_service: FlowHandler.lastSelectedService,
-          selected_location: FlowHandler.lastSelectedLocation
-      }
-  };
-}
-
-// Modificación del método handleSTAFF_SELECTION
-async handleSTAFF_SELECTION(input) {
-  console.log("=== Inicio de STAFF_SELECTION ===");
-  
-  if (input.action === "data_exchange" && input.staff) {
-      FlowHandler.lastSelectedStaff = input.staff;
-      
-      try {
-          const fechasDisponibles = await dateManager.getAvailableDates(
-              FlowHandler.lastSelectedStaff
-          );
-
-          return {
-              success: true,
-              nextScreen: "DATE_SELECTION",
-              data: {
-                  available_dates: fechasDisponibles.length > 0 ? fechasDisponibles : [{
-                      id: "no-dates",
-                      title: "No hay fechas disponibles"
-                  }],
-                  is_date_enabled: fechasDisponibles.length > 0,
-                  selected_staff: FlowHandler.lastSelectedStaff,
-                  selected_service: FlowHandler.lastSelectedService,
-                  selected_location: FlowHandler.lastSelectedLocation,
-                  loading: false
-              }
-          };
+        };
       } catch (error) {
-          console.error('Error al obtener fechas disponibles:', error);
-          return {
-              success: false,
-              data: {
-                  available_dates: [{
-                      id: "error",
-                      title: "Error al cargar fechas"
-                  }],
-                  error: true,
-                  error_message: "Error al obtener fechas disponibles: " + error.message,
-                  selected_staff: FlowHandler.lastSelectedStaff,
-                  selected_service: FlowHandler.lastSelectedService,
-                  selected_location: FlowHandler.lastSelectedLocation,
-                  loading: false
-              }
-          };
+        console.error('Error al obtener personal del centro:', error);
+        return {
+          success: false,
+          data: {
+            error: true,
+            error_message: "Error al cargar el personal del centro"
+          }
+        };
       }
+    }
+
+    return {
+      success: true,
+      data: {
+        selected_service: FlowHandler.lastSelectedService,
+        selected_location: FlowHandler.lastSelectedLocation
+      }
+    };
   }
 
-  // Para solicitudes regulares
-  return {
-      success: true,
-      screen: "STAFF_SELECTION",
-      data: {
-          available_staff: peluqueros
-              .filter(p => p.salonID === FlowHandler.lastSelectedLocation)
-              .map(p => ({
-                  id: p.peluqueroID,
-                  title: p.name
-              })),
+  async handleSTAFF_SELECTION(input) {
+    console.log("=== Inicio de STAFF_SELECTION ===");
+
+    if (input.action === "data_exchange" && input.staff) {
+      FlowHandler.lastSelectedStaff = input.staff;
+
+      try {
+        const fechasDisponibles = await flowCacheManager.getStaffAvailability(
+          FlowHandler.lastSelectedStaff,
+          FlowHandler.lastSelectedLocation
+        );
+
+        return {
+          success: true,
+          nextScreen: "DATE_SELECTION",
+          data: {
+            available_dates: fechasDisponibles.length > 0 ? fechasDisponibles : [{
+              id: "no-dates",
+              title: "No hay fechas disponibles"
+            }],
+            is_date_enabled: fechasDisponibles.length > 0,
+            selected_staff: FlowHandler.lastSelectedStaff,
+            selected_service: FlowHandler.lastSelectedService,
+            selected_location: FlowHandler.lastSelectedLocation,
+            loading: false
+          }
+        };
+      } catch (error) {
+        console.error('Error al obtener fechas disponibles:', error);
+        return {
+          success: false,
+          data: {
+            error: true,
+            error_message: "Error al obtener fechas disponibles"
+          }
+        };
+      }
+    }
+
+    // Para solicitudes regulares
+    return await this.handleSTAFFRegularRequest();
+  }
+
+  async handleSTAFFRegularRequest() {
+    try {
+      const centros = await flowCacheManager.getCentros();
+      const centroSeleccionado = centros.find(c => c.id === FlowHandler.lastSelectedLocation);
+
+      if (!centroSeleccionado) {
+        throw new Error("Centro no encontrado");
+      }
+
+      return {
+        success: true,
+        screen: "STAFF_SELECTION",
+        data: {
+          available_staff: centroSeleccionado.staff.map(p => ({
+            id: p.peluqueroID,
+            title: p.name
+          })),
           is_staff_enabled: true,
           selected_staff: FlowHandler.lastSelectedStaff,
           selected_service: FlowHandler.lastSelectedService,
           selected_location: FlowHandler.lastSelectedLocation,
           error: false
-      }
-  };
-}
+        }
+      };
+    } catch (error) {
+      console.error('Error en solicitud regular de staff:', error);
+      return {
+        success: false,
+        data: {
+          error: true,
+          error_message: "Error al cargar el personal disponible"
+        }
+      };
+    }
+  }
 
-async handleDATE_SELECTION(input) {
+  async handleDATE_SELECTION(input) {
     console.log("\n=== Inicio de DATE_SELECTION ===");
-    console.log("Input recibido:", input);
-
-    // Si hay una fecha seleccionada, avanzar a la siguiente pantalla
+    
     if (input.date) {
       FlowHandler.lastSelectedDate = input.date;
-        return {
-            success: true,
-            nextScreen: "TIME_SELECTION",
-            data: {
-                selected_date: FlowHandler.lastSelectedDate,
-                selected_staff: FlowHandler.lastSelectedStaff,
-                selected_service: FlowHandler.lastSelectedService,
-                selected_location: FlowHandler.lastSelectedLocation
-            }
-        };
+      return {
+        success: true,
+        nextScreen: "TIME_SELECTION",
+        data: {
+          selected_date: FlowHandler.lastSelectedDate,
+          selected_staff: FlowHandler.lastSelectedStaff,
+          selected_service: FlowHandler.lastSelectedService,
+          selected_location: FlowHandler.lastSelectedLocation
+        }
+      };
     }
 
-    // Si es una solicitud de actualización, mantener los datos existentes
-    return {
+    try {
+      const fechasDisponibles = await flowCacheManager.getStaffAvailability(
+        FlowHandler.lastSelectedStaff,
+        FlowHandler.lastSelectedLocation
+      );
+
+      return {
         success: true,
         screen: "DATE_SELECTION",
         data: {
-            available_dates: input.available_dates || [{
-                id: "loading",
-                title: "Cargando fechas disponibles..."
-            }],
-            is_date_enabled: input.is_date_enabled || false,
-            selected_staff: FlowHandler.lastSelectedStaff,
-                selected_service: FlowHandler.lastSelectedService,
-                selected_location: FlowHandler.lastSelectedLocation,
-            loading: input.loading || true
+          available_dates: fechasDisponibles,
+          is_date_enabled: fechasDisponibles.length > 0,
+          selected_staff: FlowHandler.lastSelectedStaff,
+          selected_service: FlowHandler.lastSelectedService,
+          selected_location: FlowHandler.lastSelectedLocation,
+          loading: false
         }
-    };
-}
+      };
+    } catch (error) {
+      console.error('Error al obtener fechas disponibles:', error);
+      return {
+        success: false,
+        data: {
+          error: true,
+          error_message: "Error al cargar fechas disponibles"
+        }
+      };
+    }
+  }
 
-async handleTIME_SELECTION(input) {
-    // Si es una solicitud inicial o de actualización sin hora seleccionada
+  async handleTIME_SELECTION(input) {
     if (input.action === "data_exchange" && !input.time) {
       try {
-        const servicioCompleto = this._getServicioCompleto(input.selected_service);
+        const servicioCompleto = this._getServicioCompleto(FlowHandler.lastSelectedService);
         const horariosDisponibles = await MongoDB.BuscarHorariosDisponiblesPeluquero(
-          input.selected_staff,
-          moment(input.selected_date), // La fecha ya viene en formato YYYY-MM-DD
+          FlowHandler.lastSelectedStaff,
+          moment(FlowHandler.lastSelectedDate),
           servicioCompleto.duracion,
-          input.selected_location
+          FlowHandler.lastSelectedLocation
         );
 
         return {
@@ -1501,17 +1462,16 @@ async handleTIME_SELECTION(input) {
               title: hora
             })),
             is_time_enabled: true,
-            selected_date: input.selected_date,
-            selected_staff: input.selected_staff,
-            selected_service: input.selected_service,
-            selected_location: input.selected_location
+            selected_date: FlowHandler.lastSelectedDate,
+            selected_staff: FlowHandler.lastSelectedStaff,
+            selected_service: FlowHandler.lastSelectedService,
+            selected_location: FlowHandler.lastSelectedLocation
           }
         };
       } catch (error) {
         console.error('Error al obtener horarios disponibles:', error);
         return {
           success: false,
-          screen: "TIME_SELECTION",
           data: {
             error: true,
             error_message: "Error al obtener horarios disponibles"
@@ -1520,53 +1480,52 @@ async handleTIME_SELECTION(input) {
       }
     }
 
-    // Si hay una hora seleccionada
     if (input.time) {
       return {
         success: true,
         nextScreen: "CUSTOMER_DETAILS",
         data: {
           selected_time: input.time,
-          selected_date: input.selected_date,
-          selected_staff: input.selected_staff,
-          selected_service: input.selected_service,
-          selected_location: input.selected_location
+          selected_date: FlowHandler.lastSelectedDate,
+          selected_staff: FlowHandler.lastSelectedStaff,
+          selected_service: FlowHandler.lastSelectedService,
+          selected_location: FlowHandler.lastSelectedLocation
         }
       };
     }
-}
+  }
 
-async handleCUSTOMER_DETAILS(input) {
+  async handleCUSTOMER_DETAILS(input) {
     if (input.action === "data_exchange" && input.customer_name && input.customer_phone) {
       return {
         success: true,
         nextScreen: "SUMMARY",
         data: {
           selected_time: input.selected_time,
-          selected_date: input.selected_date,
-          selected_staff: input.selected_staff,
-          selected_service: input.selected_service,
-          selected_location: input.selected_location,
+          selected_date: FlowHandler.lastSelectedDate,
+          selected_staff: FlowHandler.lastSelectedStaff,
+          selected_service: FlowHandler.lastSelectedService,
+          selected_location: FlowHandler.lastSelectedLocation,
           customer_name: input.customer_name,
           customer_phone: input.customer_phone
         }
       };
     }
-    
+
     return {
       success: true,
       screen: "CUSTOMER_DETAILS",
       data: {
         selected_time: input.selected_time,
-        selected_date: input.selected_date,
-        selected_staff: input.selected_staff,
-        selected_service: input.selected_service,
-        selected_location: input.selected_location
+        selected_date: FlowHandler.lastSelectedDate,
+        selected_staff: FlowHandler.lastSelectedStaff,
+        selected_service: FlowHandler.lastSelectedService,
+        selected_location: FlowHandler.lastSelectedLocation
       }
     };
-}
+  }
 
-async handleNavigation(currentScreen, input) {
+  async handleNavigation(currentScreen, input) {
     switch (currentScreen) {
       case "WELCOME":
         return await this.handleWELCOME(input);
@@ -1574,79 +1533,32 @@ async handleNavigation(currentScreen, input) {
         return await this.handleSERVICE_AND_LOCATION(input);
       case "STAFF_SELECTION":
         return await this.handleSTAFF_SELECTION(input);
-        case "DATE_SELECTION":
-          return await this.handleDATE_SELECTION(input);
-        case "TIME_SELECTION":
-          return await this.handleTIME_SELECTION(input);
-        case "CUSTOMER_DETAILS":
-          return await this.handleCUSTOMER_DETAILS(input);
+      case "DATE_SELECTION":
+        return await this.handleDATE_SELECTION(input);
+      case "TIME_SELECTION":
+        return await this.handleTIME_SELECTION(input);
+      case "CUSTOMER_DETAILS":
+        return await this.handleCUSTOMER_DETAILS(input);
       default:
         throw new Error(`Pantalla no soportada: ${currentScreen}`);
-    }
-  }
-
-  async confirmAppointment(appointmentData) {
-    try {
-      const {
-        service_id,
-        location_id,
-        date,
-        time,
-        staff_id,
-        customer_name,
-        customer_phone
-      } = appointmentData;
-
-      const horaInicio = moment(`${date} ${time}`);
-      const servicio = servicios.find(s => s.servicioID === service_id);
-      const horaFin = horaInicio.clone().add(servicio?.duracion || 30, 'minutes');
-
-      const saved = await MongoDB.GuardarEventoEnBD({
-        nombre: customer_name,
-        from: customer_phone,
-        servicioID: service_id,
-        peluquero: {
-          peluqueroID: staff_id
-        },
-        salonID: location_id
-      }, horaInicio, horaFin);
-
-      if (saved) {
-        await statisticsManager.incrementConfirmedAppointments();
-        await LogSuccess(
-          customer_phone,
-          'Cita guardada desde flow',
-          location_id,
-          await MongoDB.ObtenerSalonPorSalonID(location_id)?.nombre
-        );
-        return true;
-      }
-      return false;
-    } catch (error) {
-      console.error('Error en confirmAppointment:', error);
-      throw error;
     }
   }
 }
 
 app.post("/flow/data", async (req, res) => {
-  // Aumentar el timeout de la respuesta
- // res.setTimeout(30000); // 30 segundos
   console.log("\n=== INICIO PROCESAMIENTO FLOW DATA ===");
-  //console.log('Request body:', JSON.stringify(req.body, null, 2));
   
   let aesKeyBuffer, initialVectorBuffer;
   
   try {
     // 1. Descifrar la petición
     const decryptResult = decryptRequest(req.body);
-    //console.log("decryptResult:", decryptResult);
     const { decryptedBody } = decryptResult;
     aesKeyBuffer = decryptResult.aesKeyBuffer;
     initialVectorBuffer = decryptResult.initialVectorBuffer;
 
-     // Respuesta rápida para pings
-     if (decryptedBody.action === 'ping') {
+    // Respuesta rápida para pings
+    if (decryptedBody.action === 'ping') {
       console.log("PING de FLOW/DATA")
       return res.send(encryptResponse(
         { data: { status: "active" } },
@@ -1659,7 +1571,16 @@ app.post("/flow/data", async (req, res) => {
     
     // 2. Procesar la solicitud usando el FlowHandler
     const flowHandler = new FlowHandler();
+    
+    // Si es una solicitud inicial, asegurarse de que la caché esté precargada
+    if (decryptedBody.action === "INIT") {
+      await flowCacheManager.preloadAllData();
+    }
+    
     const response = await flowHandler.processRequest(decryptedBody);
+    
+    // Limpiar caché antigua periódicamente
+    flowCacheManager.cleanOldCache();
     
     console.log('Respuesta a enviar:', JSON.stringify(response, null, 2));
     
@@ -3537,6 +3458,10 @@ class Conversation {
     try {
         console.log("Iniciando procesamiento de flow...");
         
+        // Iniciar precarga de datos en segundo plano
+        flowCacheManager.preloadAllData()
+            .catch(error => console.error('Error en precarga de datos:', error));
+        
         // Datos para la plantilla del flow
         const data = {
             messaging_product: "whatsapp",
@@ -3555,12 +3480,12 @@ class Conversation {
                         index: 0,
                         parameters: [
                             {
-                              type: "action",
+                                type: "action",
                                 payload: "INIT",
                                 action: {
                                     flow_action_data: {
-                                        flow_id: "2436991323137895", // ID de tu flow
-                                        navigate_screen: "WELCOME" // Pantalla inicial
+                                        flow_id: "2436991323137895",
+                                        navigate_screen: "WELCOME"
                                     }
                                 }
                             }
@@ -3570,7 +3495,6 @@ class Conversation {
             }
         };
 
-        //console.log("Enviando plantilla de flow:", JSON.stringify(data, null, 2));
         await WhatsApp.Send(_phone_number_id, data);
         
         rtn.message = "Flow de cita iniciado correctamente.";
