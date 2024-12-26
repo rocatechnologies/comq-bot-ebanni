@@ -1457,7 +1457,7 @@ async function transcribirAudio(mediaId) {
 
       return whisperResponse.data.text;
   } catch (error) {
-      await LogError(this.from, `Error al transcribir audio`, error.message);
+      //await LogError(this.from, `Error al transcribir audio`, error.message);
       DoLog(`Error al transcribir audio:${error}`, Log.Error);
       return null;
   }
