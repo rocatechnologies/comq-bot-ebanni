@@ -1089,65 +1089,58 @@ class FlowHandler {
       }));
   }
 
-  async getFechasDisponibles(staffId, serviceId, locationId) {
-    console.log("getFechasDisponibles inputs:", { staffId, serviceId, locationId });
+getAvailableDates(staffId, locationId) {
+    const fechasDisponibles = [];
+    const fechaActual = moment().tz("Europe/Madrid");
     
-    try {
-        const servicioCompleto = this._getServicioCompleto(serviceId);
-        if (!servicioCompleto) {
-            console.error("Servicio no encontrado para ID:", serviceId);
-            throw new Error("Servicio no encontrado");
-        }
+    // Obtener el peluquero
+    const peluquero = peluqueros.find(p => p.peluqueroID === staffId);
+    if (!peluquero) {
+        throw new Error("Peluquero no encontrado");
+    }
 
-        console.log("Servicio encontrado:", servicioCompleto);
+    // Crear instancia de Conversation
+    const conversation = new Conversation();
+    conversation.salonID = locationId;
 
-        // Obtener el nombre del peluquero
-        const peluquero = peluqueros.find(p => p.peluqueroID === staffId);
-        if (!peluquero) {
-            throw new Error("Peluquero no encontrado");
-        }
-
-        const fechasDisponibles = [];
-        const fechaActual = moment().tz("Europe/Madrid");
+    // Buscar disponibilidad para los próximos 7 días
+    for (let i = 0; i <= 7; i++) {
+        const fechaConsulta = fechaActual.clone().add(i, 'days');
+        const fechaFormateada = fechaConsulta.format('YYYY-MM-DD');
         
-        // Crear una instancia de Conversation con los datos necesarios
-        const conversation = new Conversation();
-        conversation.salonID = locationId;
-
-        // Buscar disponibilidad para los próximos 14 días
-        for (let i = 0; i <= 14; i++) {
-            const fechaConsulta = fechaActual.clone().add(i, 'days');
-            
-            // Llamar a ProcesarConsultarHorario con el formato específico que espera
-            const comando = `CONSULTHOR ${fechaConsulta.format('YYYY-MM-DD')} ${peluquero.name}`;
-            
-            // Procesar la consulta
+        try {
+            const comando = `CONSULTHOR ${fechaFormateada} ${peluquero.name}`;
             const resultado = await conversation.ProcesarConsultarHorario(comando);
             
-            // Si el mensaje de respuesta indica que hay horarios disponibles
-            if (resultado.message && !resultado.message.includes("no tiene horarios registrados")) {
-                const horarioMatch = resultado.message.match(/trabaja de (\d{2}:\d{2}) a (\d{2}:\d{2})/);
+            if (resultado && resultado.message) {
+                // Caso 1: Mensaje de "trabaja de X a Y"
+                if (resultado.message.includes("trabaja de")) {
+                    fechasDisponibles.push({
+                        id: fechaFormateada,
+                        title: fechaConsulta.format('DD/MM/YYYY')
+                    });
+                    continue;
+                }
                 
-                fechasDisponibles.push({
-                    id: fechaConsulta.format('YYYY-MM-DD'),
-                    title: fechaConsulta.format('DD/MM/YYYY'),
-                    has_availability: true,
-                    available_hours: horarioMatch ? [{
-                        inicio: horarioMatch[1],
-                        fin: horarioMatch[2]
-                    }] : []
-                });
+                // Caso 2: Mensaje de "tiene los siguientes horarios disponibles"
+                if (resultado.message.includes("tiene los siguientes horarios disponibles")) {
+                    const fechaPattern = new RegExp(`\\*(${fechaConsulta.format('DD/MM/YYYY')})\\*:`);
+                    if (fechaPattern.test(resultado.message)) {
+                        fechasDisponibles.push({
+                            id: fechaFormateada,
+                            title: fechaConsulta.format('DD/MM/YYYY')
+                        });
+                    }
+                }
             }
+        } catch (error) {
+            console.error(`Error procesando fecha ${fechaFormateada}:`, error);
+            continue;
         }
-
-        console.log(`Se encontraron ${fechasDisponibles.length} días disponibles`);
-        return fechasDisponibles;
-
-    } catch (error) {
-        console.error('Error obteniendo fechas disponibles:', error);
-        throw error;
     }
-  }
+
+    return fechasDisponibles;
+}
 
   async handleWELCOME(input) {
     console.log("=== Inicio de WELCOME ===");
@@ -1214,66 +1207,14 @@ class FlowHandler {
     console.log("=== Inicio de STAFF_SELECTION ===");
     console.log("Input recibido:", input);
 
-    console.log("FlowHandler.lastSelectedLocation:", FlowHandler.lastSelectedLocation);
-    console.log("FlowHandler.lastSelectedService:", FlowHandler.lastSelectedService);
-
-    // Si es una solicitud para cambiar a la pantalla de fechas
     if (input.action === "data_exchange" && input.staff) {
         FlowHandler.lastSelectedStaff = input.staff;
         
         try {
-            // Crear una instancia de Conversation
-            const conversation = new Conversation();
-            conversation.salonID = FlowHandler.lastSelectedLocation;
-
-            const fechasDisponibles = [];
-            const fechaActual = moment().tz("Europe/Madrid");
-            
-            // Obtener el nombre del peluquero
-            const peluquero = peluqueros.find(p => p.peluqueroID === FlowHandler.lastSelectedStaff);
-            if (!peluquero) {
-                throw new Error("Peluquero no encontrado");
-            }
-
-            // Buscar disponibilidad para los próximos 14 días
-            for (let i = 0; i <= 7; i++) {
-                const fechaConsulta = fechaActual.clone().add(i, 'days');
-                const fechaFormateada = fechaConsulta.format('YYYY-MM-DD');
-                
-                try {
-                    const comando = `CONSULTHOR ${fechaFormateada} ${peluquero.name}`;
-                    const resultado = await conversation.ProcesarConsultarHorario(comando);
-                    
-                    if (resultado && resultado.message) {
-                        if (resultado.message.includes(`trabaja de`)) {
-                            const horarioMatch = resultado.message.match(/trabaja de (\d{2}:\d{2}) a (\d{2}:\d{2})/);
-                            
-                            if (horarioMatch) {
-                                fechasDisponibles.push({
-                                    id: fechaFormateada,
-                                    title: fechaConsulta.format('DD/MM/YYYY')
-                                });
-                            }
-                        } else if (resultado.message.includes(`tiene los siguientes horarios disponibles`)) {
-                            const fechaActualPattern = new RegExp(`\\*(${fechaConsulta.format('DD/MM/YYYY')})\\*: de (\\d{2}:\\d{2}) a (\\d{2}:\\d{2})`);
-                            const match = resultado.message.match(fechaActualPattern);
-                            
-                            if (match) {
-                                fechasDisponibles.push({
-                                    id: fechaFormateada,
-                                    title: match[1]
-                                });
-                            }
-                        }
-                    }
-                } catch (innerError) {
-                    console.error(`Error procesando fecha ${fechaFormateada}:`, innerError);
-                    continue;
-                }
-            }
-
-            // Pequeña pausa para asegurar que los logs se muestren
-            await new Promise(resolve => setTimeout(resolve, 500));
+            const fechasDisponibles = await getAvailableDates(
+                FlowHandler.lastSelectedStaff,
+                FlowHandler.lastSelectedLocation
+            );
 
             return {
                 success: true,
@@ -1290,7 +1231,6 @@ class FlowHandler {
                     loading: false
                 }
             };
-
         } catch (error) {
             console.error('Error al obtener fechas disponibles:', error);
             return {
