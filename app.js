@@ -32,6 +32,11 @@ mongoose.set("strictQuery", false);
 // Diccionario para almacenar conversaciones activas
 let conversaciones = {};
 
+// Cache para almacenar resultados
+const availabilityCache = new Map();
+// Tiempo de expiración del caché (en milisegundos) - 5 minutos
+const CACHE_EXPIRY = 5 * 60 * 1000;
+
 const Log = Object.freeze({
   Log: 0,
   Error: 1,
@@ -828,6 +833,140 @@ app.get("/full-history/:from", async (req, res) => {
   }
 });
 
+class DateAvailabilityManager {
+  constructor() {
+      this.preloadedData = new Map();
+      this.preloadPromises = new Map();
+  }
+
+  // Generar clave única para el caché
+  static getCacheKey(staffId, locationId, date) {
+      return `${staffId}_${locationId}_${date}`;
+  }
+
+  // Verificar si un resultado está en caché y es válido
+  static isValidCache(cacheEntry) {
+      if (!cacheEntry) return false;
+      return (Date.now() - cacheEntry.timestamp) < CACHE_EXPIRY;
+  }
+
+  // Consultar disponibilidad para un día específico
+  async checkDayAvailability(staffId, locationId, date, peluquero, conversation) {
+      const cacheKey = DateAvailabilityManager.getCacheKey(staffId, locationId, date);
+      
+      // Verificar caché
+      const cachedResult = availabilityCache.get(cacheKey);
+      if (DateAvailabilityManager.isValidCache(cachedResult)) {
+          return cachedResult.data;
+      }
+
+      try {
+          const fechaFormateada = date.format('YYYY-MM-DD');
+          const comando = `CONSULTHOR ${fechaFormateada} ${peluquero.name}`;
+          const resultado = await conversation.ProcesarConsultarHorario(comando);
+
+          let isAvailable = false;
+          if (resultado && resultado.message) {
+              isAvailable = resultado.message.includes("trabaja de") || 
+                          (resultado.message.includes("tiene los siguientes horarios disponibles") &&
+                           new RegExp(`\\*(${date.format('DD/MM/YYYY')})\\*:`).test(resultado.message));
+          }
+
+          const availabilityData = isAvailable ? {
+              id: fechaFormateada,
+              title: date.format('DD/MM/YYYY')
+          } : null;
+
+          // Guardar en caché
+          availabilityCache.set(cacheKey, {
+              timestamp: Date.now(),
+              data: availabilityData
+          });
+
+          return availabilityData;
+      } catch (error) {
+          console.error(`Error checking availability for ${date.format('YYYY-MM-DD')}:`, error);
+          return null;
+      }
+  }
+
+  // Precargar datos para un empleado
+  async preloadStaffData(staffId, locationId) {
+      const cacheKey = `${staffId}_${locationId}`;
+      
+      // Si ya hay una precarga en proceso, retornar la promesa existente
+      if (this.preloadPromises.has(cacheKey)) {
+          return this.preloadPromises.get(cacheKey);
+      }
+
+      const preloadPromise = (async () => {
+          try {
+              const peluquero = peluqueros.find(p => p.peluqueroID === staffId);
+              if (!peluquero) throw new Error("Peluquero no encontrado");
+
+              const conversation = new Conversation();
+              conversation.salonID = locationId;
+
+              const fechaActual = moment().tz("Europe/Madrid");
+              const promises = [];
+
+              // Crear promesas para los próximos 7 días
+              for (let i = 0; i <= 7; i++) {
+                  const fechaConsulta = fechaActual.clone().add(i, 'days');
+                  promises.push(
+                      this.checkDayAvailability(
+                          staffId,
+                          locationId,
+                          fechaConsulta,
+                          peluquero,
+                          conversation
+                      )
+                  );
+              }
+
+              // Ejecutar todas las consultas en paralelo
+              const results = await Promise.all(promises);
+
+              // Filtrar y almacenar solo los días disponibles
+              const availableDates = results.filter(result => result !== null);
+              this.preloadedData.set(cacheKey, {
+                  timestamp: Date.now(),
+                  data: availableDates
+              });
+
+              return availableDates;
+          } catch (error) {
+              console.error('Error en precarga:', error);
+              throw error;
+          } finally {
+              // Limpiar la promesa de precarga
+              this.preloadPromises.delete(cacheKey);
+          }
+      })();
+
+      // Almacenar la promesa de precarga
+      this.preloadPromises.set(cacheKey, preloadPromise);
+      return preloadPromise;
+  }
+
+  // Obtener fechas disponibles (usando datos precargados si están disponibles)
+  async getAvailableDates(staffId, locationId) {
+      const cacheKey = `${staffId}_${locationId}`;
+      const preloadedEntry = this.preloadedData.get(cacheKey);
+
+      // Si hay datos precargados válidos, usarlos
+      if (preloadedEntry && DateAvailabilityManager.isValidCache(preloadedEntry)) {
+          return preloadedEntry.data;
+      }
+
+      // Si no hay datos precargados, iniciar una nueva precarga
+      return this.preloadStaffData(staffId, locationId);
+  }
+}
+
+// Singleton para gestionar la disponibilidad
+const dateManager = new DateAvailabilityManager();
+
 // Definición de la excepción personalizada
 class FlowEndpointException extends Error {
   constructor(statusCode, message) {
@@ -1510,7 +1649,7 @@ async handleNavigation(currentScreen, input) {
 
 app.post("/flow/data", async (req, res) => {
   // Aumentar el timeout de la respuesta
-  res.setTimeout(30000); // 30 segundos
+ // res.setTimeout(30000); // 30 segundos
   console.log("\n=== INICIO PROCESAMIENTO FLOW DATA ===");
   //console.log('Request body:', JSON.stringify(req.body, null, 2));
   
