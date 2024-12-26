@@ -1832,7 +1832,7 @@ async function describirImagen(mediaId) {
 
       return openaiResponse.data.choices[0].message.content;
   } catch (error) {
-      await LogError(this.from, `Error al describir imagen`, error.message);
+     // await LogError(this.from, `Error al describir imagen`, error.message);
       DoLog(`Error al describir imagen:${error}`, Log.Error);
       return null;
   }
