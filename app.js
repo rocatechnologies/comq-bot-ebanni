@@ -989,7 +989,7 @@ class FlowCacheManager {
 const flowCacheManager = new FlowCacheManager();
 
 // Singleton para gestionar la disponibilidad
-const dateManager = new DateAvailabilityManager();
+//const dateManager = new DateAvailabilityManager();
 
 // Definición de la excepción personalizada
 class FlowEndpointException extends Error {
