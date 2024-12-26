@@ -1672,12 +1672,10 @@ app.post("/webhook", async (req, res) => {
   if (curr != null) {
     if (curr.from ?? "" != "") {
       if (curr.lastMsg.audio) {
-        // let msg = "En estos momentos no puedo escuchar audios, por favor, escribe tu mensaje.";
-        // curr.Responder(msg);
         const transcripcion = await transcribirAudio(curr.lastMsg.audio.id);
         if (transcripcion) {
           curr.lastMsg.type = "text";
-          curr.lastMsg.audio = false; // Para que se trate como texto
+          curr.lastMsg.audio = false;
           curr.lastMsg.who = WhoEnum.User;
           curr.lastMsg.newID = true;
           curr.lastMsg.message = transcripcion;
@@ -1687,8 +1685,21 @@ app.post("/webhook", async (req, res) => {
             "Lo siento, no consigo escuchar el audio, ¿puedes escribírmelo?"
           );
         }
-      }
-      if (curr.lastMsg.type === "interactive") {
+      } else if (curr.lastMsg.type === "image") {
+        const descripcion = await describirImagen(curr.lastMsg.image.id);
+        if (descripcion) {
+          curr.lastMsg.type = "text";
+          curr.lastMsg.image = false;
+          curr.lastMsg.who = WhoEnum.User;
+          curr.lastMsg.newID = true;
+          curr.lastMsg.message = descripcion;
+          curr.AddMsg(curr.lastMsg);
+        } else {
+          curr.Responder(
+            "Lo siento, no puedo describir esta imagen en este momento. ¿Podrías decirme qué muestra la imagen?"
+          );
+        }
+      } else if (curr.lastMsg.type === "interactive") {
         const message = req.body.entry[0].changes[0].value.messages[0];
 
         if (message.interactive && message.interactive.nfm_reply) {
@@ -1696,9 +1707,7 @@ app.post("/webhook", async (req, res) => {
             message.interactive.nfm_reply.response_json
           );
           const dateNow = moment().tz("Europe/Madrid").format();
-          //console.log(responseData);
 
-          // Save the data to MongoDB
           const surveyResponse = new SurveyResponse({
             phoneNumber: curr.from,
             citaRadio: responseData.recommend_radio,
@@ -1708,12 +1717,9 @@ app.post("/webhook", async (req, res) => {
             date: dateNow,
           });
 
-          //console.log(surveyResponse);
           try {
             await surveyResponse.save();
-            // Increment feedback count in stats
             statisticsManager.incrementFeedbackResponses();
-            //console.log("Survey response saved successfully.");
           } catch (error) {
             console.error("Error saving survey response:", error);
           }
@@ -1722,7 +1728,6 @@ app.post("/webhook", async (req, res) => {
         curr.lastMsg.who = WhoEnum.User;
         curr.lastMsg.newID = true;
         curr.AddMsg(curr.lastMsg);
-        //console.log("curr.lastMsg:", curr.lastMsg);
       }
     }
   }
@@ -1769,6 +1774,66 @@ async function transcribirAudio(mediaId) {
   } catch (error) {
       await LogError(this.from, `Error al transcribir audio`, error.message);
       DoLog(`Error al transcribir audio:${error}`, Log.Error);
+      return null;
+  }
+}
+
+async function describirImagen(mediaId) {
+  try {
+      // Obtener URL de la imagen
+      const mediaResponse = await axios.get(`https://graph.facebook.com/v15.0/${mediaId}`, {
+          headers: { "Authorization": `Bearer ${GRAPH_API_TOKEN}` }
+      });
+      const imageUrl = mediaResponse.data.url;
+      if (!imageUrl) throw new Error("No se pudo obtener la URL de la imagen");
+
+      // Descargar imagen
+      const response = await axios.get(imageUrl, {
+          headers: { "Authorization": `Bearer ${GRAPH_API_TOKEN}` },
+          responseType: "arraybuffer"
+      });
+      const imageBuffer = response.data;
+      const imagePath = "/tmp/image.jpg";
+      fs2.writeFileSync(imagePath, imageBuffer);
+
+      // Redimensionar para no enviar archivos muy grandes
+      const resizedImagePath = "/tmp/resized_image.jpg";
+      await sharp(imagePath).resize(1024).toFile(resizedImagePath);
+
+      // Convertir la imagen final a Base64
+      const imageBase64 = fs2.readFileSync(resizedImagePath, { encoding: "base64" });
+
+      // Enviar a OpenAI
+      const requestBody = {
+          model: "gpt-4o",  // Ajusta el modelo si lo deseas
+          messages: [
+              {
+                  role: "user",
+                  content: [
+                      {
+                          type: "text",
+                          text: "Describe la siguiente imagen en español. Si hay una cara, céntrate en detalles de su pelo y piel. Si son horarios, detállalos completos."
+                      },
+                      {
+                          type: "image_url",
+                          image_url: { url: `data:image/jpeg;base64,${imageBase64}` }
+                      }
+                  ]
+              }
+          ]
+      };
+
+      const openaiResponse = await axios.post("https://api.openai.com/v1/chat/completions", requestBody, {
+          headers: {
+              "Authorization": `Bearer ${OPENAI_API_KEY}`,
+              "Content-Type": "application/json"
+          }
+      });
+
+      return openaiResponse.data.choices[0].message.content;
+  } catch (error) {
+      await LogError(this.from, `Error al describir imagen`, error.message);
+      DoLog(`Error al describir imagen:${error}`, Log.Error);
       return null;
   }
 }
@@ -3548,6 +3613,7 @@ class Message {
     this.type = msg_obj?.type ?? "";
     this.msg_id = msg_obj?.id ?? "";
     this.audio = msg_obj?.audio ?? false;
+    this.image = msg_obj?.image ?? false; 
     this.message = msg_obj?.text?.body?.trim() ?? "";
     if (this.type == "button") {
       this.message = msg_obj?.button?.text?.trim() ?? "";
