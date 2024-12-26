@@ -1207,6 +1207,9 @@ getAvailableDates(staffId, locationId) {
     console.log("=== Inicio de STAFF_SELECTION ===");
     console.log("Input recibido:", input);
 
+    console.log("FlowHandler.lastSelectedLocation:", FlowHandler.lastSelectedLocation);
+    console.log("FlowHandler.lastSelectedService:", FlowHandler.lastSelectedService);
+
     // Si es una solicitud para cambiar a la pantalla de fechas
     if (input.action === "data_exchange" && input.staff) {
         FlowHandler.lastSelectedStaff = input.staff;
@@ -1225,47 +1228,45 @@ getAvailableDates(staffId, locationId) {
                 throw new Error("Peluquero no encontrado");
             }
 
-            // Procesar cada día de manera secuencial
+            // Buscar disponibilidad para los próximos 14 días
             for (let i = 0; i <= 7; i++) {
                 const fechaConsulta = fechaActual.clone().add(i, 'days');
                 const fechaFormateada = fechaConsulta.format('YYYY-MM-DD');
                 
                 try {
                     const comando = `CONSULTHOR ${fechaFormateada} ${peluquero.name}`;
-                    await new Promise((resolve) => {
-                        conversation.ProcesarConsultarHorario(comando)
-                            .then(resultado => {
-                                if (resultado && resultado.message) {
-                                    // Caso 1: Mensaje directo de disponibilidad
-                                    if (resultado.message.includes("trabaja de")) {
-                                        fechasDisponibles.push({
-                                            id: fechaFormateada,
-                                            title: fechaConsulta.format('DD/MM/YYYY')
-                                        });
-                                    }
-                                    // Caso 2: Mensaje con listado de horarios
-                                    else if (resultado.message.includes("tiene los siguientes horarios disponibles")) {
-                                        const fechaPattern = new RegExp(`\\*(${fechaConsulta.format('DD/MM/YYYY')})\\*:`);
-                                        if (fechaPattern.test(resultado.message)) {
-                                            fechasDisponibles.push({
-                                                id: fechaFormateada,
-                                                title: fechaConsulta.format('DD/MM/YYYY')
-                                            });
-                                        }
-                                    }
-                                }
-                                resolve();
-                            })
-                            .catch(error => {
-                                console.error(`Error al procesar fecha ${fechaFormateada}:`, error);
-                                resolve();
-                            });
-                    });
-                } catch (error) {
-                    console.error(`Error general para fecha ${fechaFormateada}:`, error);
+                    const resultado = await conversation.ProcesarConsultarHorario(comando);
+                    
+                    if (resultado && resultado.message) {
+                        if (resultado.message.includes(`trabaja de`)) {
+                            const horarioMatch = resultado.message.match(/trabaja de (\d{2}:\d{2}) a (\d{2}:\d{2})/);
+                            
+                            if (horarioMatch) {
+                                fechasDisponibles.push({
+                                    id: fechaFormateada,
+                                    title: fechaConsulta.format('DD/MM/YYYY')
+                                });
+                            }
+                        } else if (resultado.message.includes(`tiene los siguientes horarios disponibles`)) {
+                            const fechaActualPattern = new RegExp(`\\*(${fechaConsulta.format('DD/MM/YYYY')})\\*: de (\\d{2}:\\d{2}) a (\\d{2}:\\d{2})`);
+                            const match = resultado.message.match(fechaActualPattern);
+                            
+                            if (match) {
+                                fechasDisponibles.push({
+                                    id: fechaFormateada,
+                                    title: match[1]
+                                });
+                            }
+                        }
+                    }
+                } catch (innerError) {
+                    console.error(`Error procesando fecha ${fechaFormateada}:`, innerError);
                     continue;
                 }
             }
+
+            // Pequeña pausa para asegurar que los logs se muestren
+            await new Promise(resolve => setTimeout(resolve, 500));
 
             return {
                 success: true,
@@ -1319,7 +1320,7 @@ getAvailableDates(staffId, locationId) {
             error: false
         }
     };
-  }
+}
 
 async handleDATE_SELECTION(input) {
     console.log("\n=== Inicio de DATE_SELECTION ===");
