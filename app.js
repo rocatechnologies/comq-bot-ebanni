@@ -1690,7 +1690,7 @@ app.post("/webhook", async (req, res) => {
         if (descripcion) {
           curr.lastMsg.type = "text";
           curr.lastMsg.image = false;
-          curr.lastMsg.who = WhoEnum.ChatGPT;
+          curr.lastMsg.who = WhoEnum.System;
           curr.lastMsg.newID = true;
           curr.lastMsg.message = descripcion;
           curr.AddMsg(curr.lastMsg);
