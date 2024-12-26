@@ -1808,7 +1808,7 @@ async function describirImagen(mediaId) {
           model: "gpt-4o",  // Ajusta el modelo si lo deseas
           messages: [
               {
-                  role: "system",
+                  role: "user",
                   content: [
                       {
                           type: "text",
