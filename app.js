@@ -15,12 +15,16 @@ const express = require("express");
 const body_parser = require("body-parser");
 const axios = require("axios");
 const fs = require("fs").promises;
+const fs2 = require("fs");
 const moment = require("moment-timezone");
 const { MongoClient, ObjectId } = require("mongodb");
 const mongoose = require("mongoose");
 const nodemailer = require("nodemailer");
 const cron = require("node-cron");
 const crypto = require('crypto');
+const FormData = require("form-data");
+const sharp = require("sharp");
+const path = require("path");
 
 let _phone_number_id = 412480435276019;
 
@@ -1727,42 +1731,45 @@ app.post("/webhook", async (req, res) => {
 
 async function transcribirAudio(mediaId) {
   try {
-    // Obtener la URL del archivo de audio desde la API de WhatsApp
+      // Obtener URL del audio desde WhatsApp
+      const mediaResponse = await axios.get(`https://graph.facebook.com/v15.0/${mediaId}`, {
+          headers: { "Authorization": `Bearer ${GRAPH_API_TOKEN}` }
+      });
+      const audioUrl = mediaResponse.data.url;
+      if (!audioUrl) throw new Error("No se pudo obtener la URL del audio");
 
-    // Hacer la solicitud GET para obtener la URL del archivo multimedia
-    const mediaResponse = await axios.get(
-      `https://graph.facebook.com/v15.0/${mediaId}`,
-      {
-        headers: {
-          Authorization: `Bearer ${GRAPH_API_TOKEN}`,
-        },
+      // Descargar audio
+      const response = await axios.get(audioUrl, {
+          headers: { "Authorization": `Bearer ${GRAPH_API_TOKEN}` },
+          responseType: "arraybuffer"
+      });
+      const audioBuffer = response.data;
+      const audioPath = "/tmp/audio.ogg";
+      fs2.writeFileSync(audioPath, audioBuffer);
+
+      // Validar que sea un .ogg y que no esté vacío
+      const stats = fs2.statSync(audioPath);
+      if (path.extname(audioPath) !== ".ogg" || stats.size === 0) {
+          throw new Error("Archivo de audio inválido.");
       }
-    );
 
-    const audioUrl = mediaResponse.data.url;
-    //console.log("URL del audio:", audioUrl);
+      // Enviar a Whisper (OpenAI)
+      const formData = new FormData();
+      formData.append("file", fs2.createReadStream(audioPath));
+      formData.append("model", "whisper-1");
 
-    // Enviar la URL del audio a tu servidor Whisper en Replit
-    const response = await axios.post(
-      "https://whispery-nok-dani107.replit.app/transcribe",
-      {
-        // <-- Cambia aquí la URL
-        audioData: {
-          id: mediaId,
-          url: audioUrl,
-        },
-      }
-    );
+      const whisperResponse = await axios.post("https://api.openai.com/v1/audio/transcriptions", formData, {
+          headers: {
+              ...formData.getHeaders(),
+              "Authorization": `Bearer ${OPENAI_API_KEY}`
+          }
+      });
 
-    const transcripcion = response.data.transcription;
-    //console.log("Transcripción obtenida:", transcripcion);
-
-    return transcripcion;
+      return whisperResponse.data.text;
   } catch (error) {
-    // Llamada a LogError con la fecha en la zona horaria de Madrid
-    await LogError(this.from, `Error al transcribir audio`, error.message);
-    DoLog(`Error al transcribir audio:${error}`, Log.Error);
-    return null;
+      await LogError(this.from, `Error al transcribir audio`, error.message);
+      DoLog(`Error al transcribir audio:${error}`, Log.Error);
+      return null;
   }
 }
 
