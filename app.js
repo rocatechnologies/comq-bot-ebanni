@@ -1318,9 +1318,9 @@ class FlowHandler {
 
   async handleSTAFF_SELECTION(input) {
     console.log("=== Inicio de STAFF_SELECTION ===");
+    console.log("FlowHandler.lastSelectedLocation:", FlowHandler.lastSelectedLocation);
 
-    if (input.action === "data_exchange" && input.staff) {
-      FlowHandler.lastSelectedStaff = input.staff;
+    if (input.action === "data_exchange") {
 
       try {
         const fechasDisponibles = await flowCacheManager.getStaffAvailability(
