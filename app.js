@@ -22,6 +22,8 @@ const cron = require("node-cron");
 const path = require('path');
 const crypto = require('node:crypto');
 const fs2 = require("fs");
+const FormData = require("form-data");
+const sharp = require("sharp");
 
 //TESTETSTETEEt
 
