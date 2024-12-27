@@ -97,6 +97,7 @@ const specialitiesSchema = new mongoose.Schema({
 
 const Epecialities = mongoose.model("specialities", specialitiesSchema);
 
+// Appointments Schema
 const appointmentsSchema = new mongoose.Schema(
   {
     _id: {
@@ -114,36 +115,34 @@ const appointmentsSchema = new mongoose.Schema(
     specialty: Schema.Types.ObjectId,
     createdBy: {
       type: String,
-      enum: ["Manual", "WhatsApp"], // Valores permitidos
-      default: "WhatsApp", // Valor predeterminado
+      enum: ["Manual", "WhatsApp"],
+      default: "WhatsApp",
     },
     status: {
       type: String,
-      enum: ["confirmed", "canceled"], // Define los valores permitidos
-      default: "confirmed", // Valor predeterminado
+      enum: ["confirmed", "canceled"],
+      default: "confirmed",
       required: true,
     },
     createdAt: {
       type: Date,
-      default: Date.now, // Fecha de creación inicializada automáticamente
+      default: Date.now,
     },
   },
   { _id: false }
 );
 
+// Añadir índices para appointments
+appointmentsSchema.index({ date: -1, status: 1 });
+appointmentsSchema.index({ clientPhone: 1, date: -1 });
+appointmentsSchema.index({ userInfo: 1, date: -1, status: 1 });
+appointmentsSchema.index({ centerInfo: 1, date: -1 });
+appointmentsSchema.index({ createdAt: -1 });
+appointmentsSchema.index({ createdBy: 1, createdAt: -1 });
+
 const Appointments = mongoose.model("appointments", appointmentsSchema);
 
-const centersSchema = new mongoose.Schema({
-  _id: Schema.Types.ObjectId,
-  centerName: String,
-  address: String,
-  userInfo: [Schema.Types.ObjectId],
-  phoneNumber: String,
-  specialities: [Schema.Types.ObjectId],
-});
-
-const Centers = mongoose.model("centers", centersSchema);
-
+// Users Schema
 const usersSchema = new mongoose.Schema({
   _id: Schema.Types.ObjectId,
   name: String,
@@ -157,8 +156,30 @@ const usersSchema = new mongoose.Schema({
   specialities: [Schema.Types.ObjectId],
 });
 
+// Añadir índices para users
+usersSchema.index({ role: 1 });
+usersSchema.index({ centerInfo: 1 });
+usersSchema.index({ specialities: 1 });
+
 const Users = mongoose.model("users", usersSchema);
 
+// Centers Schema
+const centersSchema = new mongoose.Schema({
+  _id: Schema.Types.ObjectId,
+  centerName: String,
+  address: String,
+  userInfo: [Schema.Types.ObjectId],
+  phoneNumber: String,
+  specialities: [Schema.Types.ObjectId],
+});
+
+// Añadir índices para centers
+centersSchema.index({ specialities: 1 });
+centersSchema.index({ userInfo: 1 });
+
+const Centers = mongoose.model("centers", centersSchema);
+
+// Statistics Schema
 const statisticsSchema = new mongoose.Schema({
   date: { type: Date, default: Date.now },
   confirmedAppointments: { type: Number, default: 0 },
@@ -169,6 +190,9 @@ const statisticsSchema = new mongoose.Schema({
   feedbackResponses: { type: Number, default: 0 },
   qrScans: { type: Number, default: 0 },
 });
+
+// Añadir índice para statistics
+statisticsSchema.index({ date: -1 });
 
 const Statistics = mongoose.model("statistics", statisticsSchema);
 
@@ -184,7 +208,7 @@ const metaDataSchema = new mongoose.Schema({
 
 const MetaData = mongoose.model("metadata", metaDataSchema);
 
-// Define your schema
+// Survey Response Schema
 const surveyResponseSchema = new mongoose.Schema({
   phoneNumber: String,
   opinionFeedback: String,
@@ -193,6 +217,9 @@ const surveyResponseSchema = new mongoose.Schema({
   botExistance: String,
   date: { type: Date, default: Date.now },
 });
+
+// Añadir índice para survey responses
+surveyResponseSchema.index({ date: -1 });
 
 const SurveyResponse = mongoose.model("SurveyResponse", surveyResponseSchema);
 
@@ -209,12 +236,16 @@ const conversationSchema = new mongoose.Schema({
   messages: [messageSchema], // Array de mensajes con su esquema
 });
 
+// Chat History Schema
 const chatHistorySchema = new mongoose.Schema({
-  from: String, // Número de teléfono del cliente
-  conversation: String, // La conversación completa en un solo string
+  from: String,
+  conversation: String,
   startedAt: { type: Date, default: Date.now },
   endedAt: { type: Date },
 });
+
+// Añadir índices para chat history
+chatHistorySchema.index({ from: 1, startedAt: -1 });
 
 const ChatHistory = mongoose.model("ChatHistory", chatHistorySchema);
 
@@ -242,7 +273,23 @@ const Logs = mongoose.model("logs", logsSchema);
 // Función para conectar a la base de datos MongoDB
 async function connectDB() {
   try {
-    await mongoose.connect(MONGO_URL, { serverSelectionTimeoutMS: 10000 });
+    await mongoose.connect(MONGO_URL, { 
+      serverSelectionTimeoutMS: 10000,
+      autoIndex: true // Habilitar la creación automática de índices
+    });
+
+    // Sincronizar índices una vez después de la conexión
+    await Promise.all([
+      Appointments.syncIndexes(),
+      Users.syncIndexes(),
+      Centers.syncIndexes(),
+      Logs.syncIndexes(),
+      ChatHistory.syncIndexes(),
+      Statistics.syncIndexes(),
+      SurveyResponse.syncIndexes()
+    ]);
+
+    console.log('Índices sincronizados correctamente');
   } catch (ex) {
     DoLog(`Error al conectar a MongoDB: ${ex}`, Log.Error);
     process.exit(1);
