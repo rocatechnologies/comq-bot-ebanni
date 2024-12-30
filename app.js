@@ -2088,9 +2088,7 @@ class Conversation {
               `${appointments.length} citas se han marcado como canceladas`
             );
 
-            rtn.message = `*Cita(s) cancelada(s) correctamente.*\n\nDetalles de la(s) cita(s) cancelada(s):\n${details.join(
-              "\n\n"
-            )}\n\nGracias por cancelarla. Puedes volver a escribirnos por aquí si quieres volver a pedir una cita o para cualquier cosa que necesites. Que tengas buen día.`;
+            rtn.message = `*Tu cita ha sido cancelada correctamente.*\n\nGracias por cancelarla. Puedes volver a escribirnos por aquí si quieres volver a pedir una cita o para cualquier cosa que necesites. Que tengas buen día.`;
           }
 
           this.AddMsg(rtn);
@@ -4853,7 +4851,7 @@ class CommandQueue {
 class ErrorHandler {
   static get commandExamples() {
     return {
-    LISTAPELUQ: "LISTAPELUQ 2024-12-25T10:00:00Z Maria",
+    LISTAPELUQ: "LISTAPELUQ 2024-12-25T10:00:00Z Maria Q",
     GUARDACITA: "GUARDACITA | Corte de pelo | 2024-12-25T10:00:00+01:00 | Nervión Señoras | Maria | Juan Pérez",
     SERV: "SERV corte de pelo",
     SPECIALITY: "SPECIALITY Señora",
