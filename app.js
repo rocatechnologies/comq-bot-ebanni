@@ -1376,45 +1376,98 @@ class FlowHandler {
       FlowHandler.lastSelectedStaff = input.staff;
       console.log("Staff guardado:", FlowHandler.lastSelectedStaff);
   
-      // Si tenemos todos los datos necesarios, procedemos a cargar fechas
-      if (FlowHandler.lastSelectedLocation && FlowHandler.lastSelectedService) {
-        try {
-          // Precargamos las fechas pero no las enviamos aún
-          await flowCacheManager.getStaffAvailability(
-            FlowHandler.lastSelectedStaff,
-            FlowHandler.lastSelectedLocation
-          );
+      // Si es data_exchange y pide available_dates
+      if (input.action === "data_exchange" && 
+          input.get_data && 
+          input.get_data.includes("available_dates")) {
+        
+        // Si tenemos todos los datos necesarios, procedemos a cargar fechas
+        if (FlowHandler.lastSelectedLocation && FlowHandler.lastSelectedService) {
+          try {
+            // Precargamos las fechas y avanzamos a DATE_SELECTION
+            const fechasDisponibles = await flowCacheManager.getStaffAvailability(
+              FlowHandler.lastSelectedStaff,
+              FlowHandler.lastSelectedLocation
+            );
   
-          // Avanzamos a DATE_SELECTION
-          return {
-            success: true,
-            nextScreen: "DATE_SELECTION",
-            data: {
-              selected_staff: FlowHandler.lastSelectedStaff,
-              selected_service: FlowHandler.lastSelectedService,
-              selected_location: FlowHandler.lastSelectedLocation,
-              loading: true  // Indicamos que se deben cargar las fechas
-            }
-          };
-        } catch (error) {
-          console.error('Error en precarga de fechas:', error);
-          // Aun así continuamos a DATE_SELECTION
-          return {
-            success: true,
-            nextScreen: "DATE_SELECTION",
-            data: {
-              selected_staff: FlowHandler.lastSelectedStaff,
-              selected_service: FlowHandler.lastSelectedService,
-              selected_location: FlowHandler.lastSelectedLocation,
-              loading: true
-            }
-          };
+            return {
+              success: true,
+              nextScreen: "DATE_SELECTION",
+              data: {
+                available_dates: fechasDisponibles.length > 0 ? fechasDisponibles : [{
+                  id: "no-dates",
+                  title: "No hay fechas disponibles"
+                }],
+                is_date_enabled: fechasDisponibles.length > 0,
+                selected_staff: FlowHandler.lastSelectedStaff,
+                selected_service: FlowHandler.lastSelectedService,
+                selected_location: FlowHandler.lastSelectedLocation,
+                loading: false
+              }
+            };
+          } catch (error) {
+            console.error('Error al obtener fechas:', error);
+            return {
+              success: false,
+              data: {
+                error: true,
+                error_message: "Error al cargar las fechas disponibles",
+                selected_staff: FlowHandler.lastSelectedStaff,
+                selected_service: FlowHandler.lastSelectedService,
+                selected_location: FlowHandler.lastSelectedLocation
+              }
+            };
+          }
         }
       }
+  
+      // Si solo tenemos el staff pero no es una petición de fechas,
+      // simplemente avanzamos a DATE_SELECTION
+      return {
+        success: true,
+        nextScreen: "DATE_SELECTION",
+        data: {
+          selected_staff: FlowHandler.lastSelectedStaff,
+          selected_service: FlowHandler.lastSelectedService,
+          selected_location: FlowHandler.lastSelectedLocation,
+          loading: true
+        }
+      };
     }
   
-    // Para cualquier otra solicitud regular
-    return await this.handleSTAFFRegularRequest();
+    // Si no hay staff seleccionado, cargamos la lista de staff disponible
+    try {
+      const centros = await flowCacheManager.getCentros();
+      const centroSeleccionado = centros.find(c => c.id === FlowHandler.lastSelectedLocation);
+  
+      if (!centroSeleccionado) {
+        throw new Error("Centro no encontrado");
+      }
+  
+      return {
+        success: true,
+        screen: "STAFF_SELECTION",
+        data: {
+          available_staff: centroSeleccionado.staff.map(p => ({
+            id: p.peluqueroID,
+            title: p.name
+          })),
+          is_staff_enabled: true,
+          selected_service: FlowHandler.lastSelectedService,
+          selected_location: FlowHandler.lastSelectedLocation,
+          error: false
+        }
+      };
+    } catch (error) {
+      console.error('Error al cargar personal disponible:', error);
+      return {
+        success: false,
+        data: {
+          error: true,
+          error_message: "Error al cargar el personal disponible"
+        }
+      };
+    }
   }
   
   async handleDATE_SELECTION(input) {
