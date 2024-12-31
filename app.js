@@ -4919,63 +4919,131 @@ class CommandQueue {
 class ErrorHandler {
   static get commandExamples() {
     return {
-    LISTAPELUQ: "LISTAPELUQ 2024-12-25T10:00:00Z Maria Q",
-    GUARDACITA: "GUARDACITA | Corte de pelo | 2024-12-25T10:00:00+01:00 | Nervión Señoras | Maria | Juan Pérez",
-    SERV: "SERV corte de pelo",
-    SPECIALITY: "SPECIALITY Señora",
-    CENTROID: "CENTROID Nervión Señoras",
-    CONSULTHOR: "CONSULTHOR 2024-12-25T00:00:00Z Maria",
-    MODCITA: "MODCITA 12/25/2024",
-    CANCELACITA: "CANCELACITA 12/25/2024",
-    CENTROINFO: "CENTROINFO Nervión Señoras"
-  };
+      LISTAPELUQ: "LISTAPELUQ 2024-12-25T10:00:00Z Maria Q",
+      GUARDACITA: "GUARDACITA | Corte de pelo | 2024-12-25T10:00:00+01:00 | Nervión Señoras | Maria | Juan Pérez",
+      SERV: "SERV corte de pelo",
+      SPECIALITY: "SPECIALITY Señora",
+      CENTROID: "CENTROID Nervión Señoras",
+      CONSULTHOR: "CONSULTHOR 2024-12-25T00:00:00Z Maria",
+      MODCITA: "MODCITA 12/25/2024",
+      CANCELACITA: "CANCELACITA 12/25/2024",
+      CENTROINFO: "CENTROINFO Nervión Señoras"
+    };
   }
 
   static async handleCommandError(command, error, conversation) {
+    console.log("\n=== INICIO HANDLE COMMAND ERROR ===");
+    console.log("Parámetros recibidos:", {
+      command: command,
+      errorMessage: error?.message,
+      conversationId: conversation?.from
+    });
+
     try {
-      // Extraer el tipo de comando del comando original
-      const commandType = Object.keys(ErrorHandler.commandExamples).find(cmd => command.includes(cmd));
-      
-      if (!commandType) {
-        throw new Error("Tipo de comando no reconocido");
+      // Validar parámetros de entrada
+      if (!command || typeof command !== 'string') {
+        throw new Error("Comando inválido o no proporcionado");
       }
 
-      // Construir el mensaje para ChatGPT
+      if (!error) {
+        throw new Error("Error no proporcionado");
+      }
+
+      if (!conversation) {
+        throw new Error("Conversación no proporcionada");
+      }
+
+      // Extraer el tipo de comando normalizando los comandos
+      const commandStr = command.trim().toUpperCase();
+      const commandType = Object.keys(ErrorHandler.commandExamples).find(cmd => 
+        commandStr.startsWith(cmd)
+      );
+
+      console.log("Análisis de comando:", {
+        commandStr: commandStr,
+        detectedType: commandType
+      });
+
+      if (!commandType) {
+        throw new Error(`Tipo de comando no reconocido: ${commandStr}`);
+      }
+
+      // Construir el prompt para ChatGPT con validación
+      const exampleFormat = ErrorHandler.commandExamples[commandType];
       const prompt = `Has recibido un comando "${command}" que ha producido el siguiente error: "${error.message}".
-                     El formato correcto para este tipo de comando debería ser como este ejemplo: "${ErrorHandler.commandExamples[commandType]}".
+                     El formato correcto para este tipo de comando debería ser como este ejemplo: "${exampleFormat}".
                      Por favor, analiza el error y devuelve el comando corregido manteniendo los datos originales pero en el formato correcto.
                      Solo devuelve el comando corregido, sin explicaciones adicionales.`;
+
+      console.log("Enviando prompt a ChatGPT:", {
+        commandType: commandType,
+        exampleFormat: exampleFormat
+      });
 
       // Obtener la corrección de ChatGPT
       const correctedCommand = await ChatGPT.SendToGPT(prompt, false);
 
-      if (!correctedCommand || correctedCommand.trim() === "") {
-        throw new Error("No se pudo obtener una corrección válida");
+      // Validar la respuesta de ChatGPT
+      if (!correctedCommand || typeof correctedCommand !== 'string' || correctedCommand.trim() === "") {
+        throw new Error("No se pudo obtener una corrección válida de ChatGPT");
       }
 
-      // Log de la corrección
+      // Log detallado de la corrección
+      console.log("Corrección recibida:", {
+        original: command,
+        corregido: correctedCommand
+      });
+
       DoLog(`Comando original: ${command}`);
       DoLog(`Comando corregido: ${correctedCommand}`);
 
-      // Crear un nuevo mensaje del sistema para informar de la corrección
+      // Crear y validar el mensaje del sistema
       const systemMsg = new Message(WhoEnum.System);
       systemMsg.message = `Se detectó y corrigió un error en el comando. Reintentando con el comando corregido.`;
+      
+      if (!systemMsg.message) {
+        throw new Error("Error al crear el mensaje del sistema");
+      }
+
       conversation.AddMsg(systemMsg);
 
       // Procesar el comando corregido
       let gpt = new Message(WhoEnum.ChatGPT);
-      gpt.message = correctedCommand;
+      gpt.message = correctedCommand.trim();
+
+      console.log("=== FIN HANDLE COMMAND ERROR (éxito) ===\n");
       return await conversation.ProcessOne(gpt);
 
     } catch (handlingError) {
+      console.error("\n=== ERROR EN HANDLE COMMAND ERROR ===");
+      console.error("Detalles del error:", {
+        mensaje: handlingError.message,
+        stack: handlingError.stack,
+        comandoOriginal: command,
+        errorOriginal: error?.message
+      });
+
       DoLog(`Error en el manejo de errores: ${handlingError}`, Log.Error);
-      await LogError(
-        conversation.from,
-        "Error en el sistema de corrección de comandos",
-        handlingError,
-        conversation.salonID,
-        conversation.salonNombre
-      );
+      
+      // Asegurarse de que conversation existe antes de usarlo
+      if (conversation) {
+        await LogError(
+          conversation.from,
+          "Error en el sistema de corrección de comandos",
+          handlingError,
+          conversation.salonID,
+          conversation.salonNombre
+        );
+      }
+
+      // Registrar estadísticas de error si es posible
+      try {
+        await statisticsManager.incrementFailedOperations();
+      } catch (statsError) {
+        console.error("Error al incrementar estadísticas:", statsError);
+      }
+
+      console.log("=== FIN HANDLE COMMAND ERROR (con error) ===\n");
       throw handlingError;
     }
   }
