@@ -88,6 +88,23 @@ const servicesSchema = new mongoose.Schema({
   specialities: [Schema.Types.ObjectId],
 });
 
+// Crear índice de búsqueda
+servicesSchema.index(
+  { serviceName: 'text' },
+  {
+    weights: {
+      serviceName: 10 // Dar mayor peso a las coincidencias en el nombre del servicio
+    },
+    name: "services_search_index",
+    default_language: "spanish",
+    language_override: "es"
+  }
+);
+
+// Índices regulares para otros campos frecuentemente consultados
+servicesSchema.index({ specialities: 1 });
+servicesSchema.index({ duration: 1 });
+
 const Services = mongoose.model("services", servicesSchema);
 
 const specialitiesSchema = new mongoose.Schema({
