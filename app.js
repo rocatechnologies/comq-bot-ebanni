@@ -1793,6 +1793,7 @@ app.post("/webhook", async (req, res) => {
           curr.lastMsg.newID = true;
           curr.lastMsg.message = descripcion;
           curr.AddMsg(curr.lastMsg);
+          curr.Responder(descripcion);
         } else {
           curr.Responder(
             "Lo siento, no puedo describir esta imagen en este momento. ¿Podrías decirme qué muestra la imagen?"
