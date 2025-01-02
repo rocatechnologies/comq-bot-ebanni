@@ -1913,7 +1913,7 @@ async function describirImagen(mediaId) {
                   content: [
                       {
                           type: "text",
-                          text: "Trabajas para un salón de peeluquería y estás recomendando a un cliente sobre lo que quiere. Si hay una cara, céntrate en detalles de su pelo y piel. Si son horarios, detállalos completos."
+                          text: "Trabajas para un salón de peluquería y estás recomendando a un cliente sobre lo que quiere. Si hay una cara, céntrate en detalles de su pelo y piel. Si son horarios, detállalos completos."
                       },
                       {
                           type: "image_url",
@@ -1931,6 +1931,7 @@ async function describirImagen(mediaId) {
           }
       });
 
+      console.log("openaiResponse.data.choices[0].message.content:", openaiResponse.data.choices[0].message.content);
       return openaiResponse.data.choices[0].message.content;
   } catch (error) {
      // await LogError(this.from, `Error al describir imagen`, error.message);
