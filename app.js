@@ -1913,7 +1913,7 @@ async function describirImagen(mediaId) {
                   content: [
                       {
                           type: "text",
-                          text: "Eres un estilista de imagen. Si hay una cara, céntrate en detalles de su pelo y piel. Si son horarios, detállalos completos."
+                          text: "Eres un estilista de imagen. Si hay una cara, céntrate en detalles de su pelo y piel. Aconseja al cliente de manera concisa. Si son horarios, detállalos completos."
                       },
                       {
                           type: "image_url",
