@@ -1913,7 +1913,7 @@ async function describirImagen(mediaId) {
                   content: [
                       {
                           type: "text",
-                          text: "Trabajas para un salón de peeluquería y estás recomendando a un cliente Si hay una cara, céntrate en detalles de su pelo y piel. Si son horarios, detállalos completos."
+                          text: "Trabajas para un salón de peeluquería y estás recomendando a un cliente sobre lo que quiere. Si hay una cara, céntrate en detalles de su pelo y piel. Si son horarios, detállalos completos."
                       },
                       {
                           type: "image_url",
