@@ -1789,7 +1789,7 @@ app.post("/webhook", async (req, res) => {
         if (descripcion) {
           curr.lastMsg.type = "text";
           curr.lastMsg.image = false;
-          curr.lastMsg.who = WhoEnum.System;
+          curr.lastMsg.who = WhoEnum.ChatGPT;
           curr.lastMsg.newID = true;
           curr.lastMsg.message = descripcion;
           curr.AddMsg(curr.lastMsg);
@@ -1911,7 +1911,7 @@ async function describirImagen(mediaId) {
                   content: [
                       {
                           type: "text",
-                          text: "Describe la siguiente imagen en español. Si hay una cara, céntrate en detalles de su pelo y piel. Si son horarios, detállalos completos."
+                          text: "Describe la siguiente imagen en español. Trabajas para u salón de peeluquería y estás reecomendando a u cliente Si hay una cara, céntrate en detalles de su pelo y piel. Si son horarios, detállalos completos."
                       },
                       {
                           type: "image_url",
