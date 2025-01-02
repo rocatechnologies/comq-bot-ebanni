@@ -1605,7 +1605,7 @@ async function LogError(phoneNumber, message, error, centerID, centerName) {
     centerName: centerName,
     type: "error",
     message: message || error.message, // Mensaje de error
-    partOfProgram: error.stack, // Traza completa del error
+    partOfProgram: error.stack || "vacío",// Traza completa del error
     date: errorDate, // Fecha y hora con zona horaria de Madrid
   });
 
