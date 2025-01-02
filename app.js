@@ -1786,6 +1786,7 @@ app.post("/webhook", async (req, res) => {
         }
       } else if (curr.lastMsg.type === "image") {
         const descripcion = await describirImagen(curr.lastMsg.image.id);
+        console.log("descripcion de la imagen:", descripcion);
         if (descripcion) {
           curr.lastMsg.type = "text";
           curr.lastMsg.image = false;
@@ -1912,7 +1913,7 @@ async function describirImagen(mediaId) {
                   content: [
                       {
                           type: "text",
-                          text: "Describe la siguiente imagen en español. Trabajas para u salón de peeluquería y estás reecomendando a u cliente Si hay una cara, céntrate en detalles de su pelo y piel. Si son horarios, detállalos completos."
+                          text: "Trabajas para un salón de peeluquería y estás recomendando a un cliente Si hay una cara, céntrate en detalles de su pelo y piel. Si son horarios, detállalos completos."
                       },
                       {
                           type: "image_url",
