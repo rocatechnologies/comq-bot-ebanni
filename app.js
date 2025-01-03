@@ -1787,42 +1787,48 @@ app.post("/webhook", async (req, res) => {
           );
         }
       } else if (curr.lastMsg.type === "image") {
+        // Obtener el mensaje de texto que acompaña a la imagen desde la estructura del webhook
+        const message = req.body.entry[0].changes[0].value.messages[0];
+        const mensajeAcompañante = message.text?.body || '';
+        console.log("mensaje acompañante:", mensajeAcompañante);
+        
         const descripcion = await describirImagen(curr.lastMsg.image.id);
         console.log("descripcion de la imagen:", descripcion);
+        
         if (descripcion) {
-          // Obtener el mensaje de texto que acompaña a la imagen
-          const mensajeAcompañante = curr.lastMsg.message || '';
-          console.log("mensajeAcompañante:", mensajeAcompañante);
-          
-          // Enviar tanto la descripción como el mensaje a ChatGPT
-          const respuestaGPT = await ChatGPT.SendToGPT(
-            `Contexto: El cliente ha enviado una imagen con el siguiente mensaje: "${mensajeAcompañante}"
-            
-            Descripción de la imagen: ${descripcion}
-            
-            Por favor, proporciona una respuesta profesional y útil que tenga en cuenta tanto la imagen como el mensaje del cliente.`
-          );
+          // Construir el prompt incluyendo tanto la descripción como el mensaje
+          let promptCompleto = `Análisis de la imagen enviada por el cliente:
+          ${descripcion}`;
       
-          // Guardar la descripción original como mensaje
+          // Agregar el mensaje acompañante si existe
+          if (mensajeAcompañante) {
+            promptCompleto += `\n\nMensaje del cliente: "${mensajeAcompañante}"`;
+          }
+      
+          promptCompleto += `\n\nPor favor, proporciona una respuesta profesional y útil basada en esta información, enfocándote en los servicios de peluquería y estética que podemos ofrecer.`;
+          console.log("prompt completo:", promptCompleto);
+          // Enviar a ChatGPT
+          const respuestaGPT = await ChatGPT.SendToGPT(promptCompleto);
+      
+          // Guardar la descripción original y el mensaje como parte de la conversación
           curr.lastMsg.type = "text";
           curr.lastMsg.image = false;
           curr.lastMsg.who = WhoEnum.ChatGPT;
           curr.lastMsg.newID = true;
-          curr.lastMsg.message = descripcion;
+          curr.lastMsg.message = `${descripcion}${mensajeAcompañante ? '\n' + mensajeAcompañante : ''}`;
           curr.AddMsg(curr.lastMsg);
       
-          // Enviar la respuesta personalizada de ChatGPT
+          // Enviar la respuesta de ChatGPT
           if (respuestaGPT) {
-            console.log("respuestaGPT:", respuestaGPT);
             curr.Responder(respuestaGPT);
           } else {
             curr.Responder(
-              "Lo siento, no pude procesar adecuadamente la imagen. ¿Podrías explicarme qué muestra la imagen?"
+              "Lo siento, no pude procesar adecuadamente tu mensaje. ¿Podrías decirme qué servicio te interesa?"
             );
           }
         } else {
           curr.Responder(
-            "Lo siento, no puedo describir esta imagen en este momento. ¿Podrías decirme qué muestra la imagen?"
+            "Lo siento, no puedo procesar esta imagen en este momento. ¿Podrías decirme qué servicio necesitas?"
           );
         }
       } else if (curr.lastMsg.type === "interactive") {
