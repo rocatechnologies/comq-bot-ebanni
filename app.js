@@ -1486,6 +1486,8 @@ class FlowHandler {
       };
     }
   }
+
+  
   
   async handleDATE_SELECTION(input) {
     console.log("\n=== Inicio de DATE_SELECTION ===");
@@ -1788,13 +1790,28 @@ app.post("/webhook", async (req, res) => {
         const descripcion = await describirImagen(curr.lastMsg.image.id);
         console.log("descripcion de la imagen:", descripcion);
         if (descripcion) {
+          // Enviar la descripción a ChatGPT para obtener una respuesta personalizada
+          const respuestaGPT = await ChatGPT.SendToGPT(
+            `El cliente ha enviado una imagen. Esta es la descripción de la imagen: ${descripcion}. 
+            Por favor, proporciona una respuesta profesional y útil basada en esta imagen.`
+          );
+      
+          // Guardar la descripción original como mensaje
           curr.lastMsg.type = "text";
           curr.lastMsg.image = false;
           curr.lastMsg.who = WhoEnum.ChatGPT;
           curr.lastMsg.newID = true;
           curr.lastMsg.message = descripcion;
           curr.AddMsg(curr.lastMsg);
-          curr.Responder(descripcion);
+      
+          // Enviar la respuesta personalizada de ChatGPT
+          if (respuestaGPT) {
+            curr.Responder(respuestaGPT);
+          } else {
+            curr.Responder(
+              "Lo siento, no pude procesar adecuadamente la imagen. ¿Podrías explicarme qué muestra la imagen?"
+            );
+          }
         } else {
           curr.Responder(
             "Lo siento, no puedo describir esta imagen en este momento. ¿Podrías decirme qué muestra la imagen?"
