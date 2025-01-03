@@ -1806,6 +1806,7 @@ app.post("/webhook", async (req, res) => {
       
           // Enviar la respuesta personalizada de ChatGPT
           if (respuestaGPT) {
+            console.log("respuestaGPT:", respuestaGPT);
             curr.Responder(respuestaGPT);
           } else {
             curr.Responder(
