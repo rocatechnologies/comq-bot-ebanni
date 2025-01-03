@@ -1787,48 +1787,54 @@ app.post("/webhook", async (req, res) => {
           );
         }
       } else if (curr.lastMsg.type === "image") {
-        // Obtener el mensaje de texto que acompaña a la imagen desde la estructura del webhook
-        const message = req.body.entry[0].changes[0].value.messages[0];
-        const mensajeAcompañante = message.text?.body || '';
-        console.log("mensaje acompañante:", mensajeAcompañante);
+        // Debugging: Imprimir la estructura completa del mensaje
+        console.log("Estructura completa del mensaje:", JSON.stringify(curr.lastMsg, null, 2));
+        console.log("Estructura completa del request:", JSON.stringify(req.body, null, 2));
         
         const descripcion = await describirImagen(curr.lastMsg.image.id);
         console.log("descripcion de la imagen:", descripcion);
         
         if (descripcion) {
-          // Construir el prompt incluyendo tanto la descripción como el mensaje
-          let promptCompleto = `Análisis de la imagen enviada por el cliente:
-          ${descripcion}`;
-      
-          // Agregar el mensaje acompañante si existe
-          if (mensajeAcompañante) {
-            promptCompleto += `\n\nMensaje del cliente: "${mensajeAcompañante}"`;
+          // Primero guardar el mensaje original del usuario
+          const mensajeUsuario = {
+            type: "text",
+            message: curr.lastMsg.caption || curr.lastMsg.message || '',  // Intentamos diferentes propiedades
+            who: WhoEnum.User,
+            newID: true
+          };
+          
+          if (mensajeUsuario.message) {
+            curr.AddMsg(mensajeUsuario);
           }
       
-          promptCompleto += `\n\nPor favor, proporciona una respuesta profesional y útil basada en esta información, enfocándote en los servicios de peluquería y estética que podemos ofrecer.`;
-          console.log("prompt completo:", promptCompleto);
-          // Enviar a ChatGPT
-          const respuestaGPT = await ChatGPT.SendToGPT(promptCompleto);
-      
-          // Guardar la descripción original y el mensaje como parte de la conversación
+          // Ahora procesamos la descripción de la imagen
           curr.lastMsg.type = "text";
           curr.lastMsg.image = false;
           curr.lastMsg.who = WhoEnum.ChatGPT;
           curr.lastMsg.newID = true;
-          curr.lastMsg.message = `${descripcion}${mensajeAcompañante ? '\n' + mensajeAcompañante : ''}`;
+          curr.lastMsg.message = descripcion;
           curr.AddMsg(curr.lastMsg);
       
-          // Enviar la respuesta de ChatGPT
+          // Construimos el prompt para GPT incluyendo toda la información disponible
+          let promptCompleto = `Contexto: Un cliente ha enviado una imagen a nuestro servicio de peluquería.
+          
+          Descripción de la imagen: ${descripcion}
+          ${mensajeUsuario.message ? `\nMensaje del cliente: ${mensajeUsuario.message}` : ''}
+          
+          Por favor, proporciona una respuesta profesional y útil enfocada en nuestros servicios de peluquería, considerando tanto la imagen como cualquier mensaje adicional del cliente.`;
+      
+          const respuestaGPT = await ChatGPT.SendToGPT(promptCompleto);
+      
           if (respuestaGPT) {
             curr.Responder(respuestaGPT);
           } else {
             curr.Responder(
-              "Lo siento, no pude procesar adecuadamente tu mensaje. ¿Podrías decirme qué servicio te interesa?"
+              "Lo siento, no pude procesar adecuadamente tu mensaje. ¿Me podrías decir qué servicio te interesa?"
             );
           }
         } else {
           curr.Responder(
-            "Lo siento, no puedo procesar esta imagen en este momento. ¿Podrías decirme qué servicio necesitas?"
+            "Lo siento, no puedo procesar esta imagen en este momento. ¿Me podrías decir qué servicio necesitas?"
           );
         }
       } else if (curr.lastMsg.type === "interactive") {
