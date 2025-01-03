@@ -1792,7 +1792,7 @@ app.post("/webhook", async (req, res) => {
         if (descripcion) {
           // Enviar la descripción a ChatGPT para obtener una respuesta personalizada
           const respuestaGPT = await ChatGPT.SendToGPT(
-            `El cliente ha enviado una imagen. Esta es la descripción de la imagen: ${descripcion}. 
+            `Esta es la descripción de la imagen que te ha enviado el cliente: ${descripcion}. 
             Por favor, proporciona una respuesta profesional y útil basada en esta imagen.`
           );
       
