@@ -1787,27 +1787,35 @@ app.post("/webhook", async (req, res) => {
           );
         }
       } else if (curr.lastMsg.type === "image") {
-        // Debugging: Imprimir la estructura completa del mensaje
-        console.log("Estructura completa del mensaje:", JSON.stringify(curr.lastMsg, null, 2));
-        console.log("Estructura completa del request:", JSON.stringify(req.body, null, 2));
-        
         const descripcion = await describirImagen(curr.lastMsg.image.id);
         console.log("descripcion de la imagen:", descripcion);
         
         if (descripcion) {
-          // Primero guardar el mensaje original del usuario
-          const mensajeUsuario = {
-            type: "text",
-            message: curr.lastMsg.caption || curr.lastMsg.message || '',  // Intentamos diferentes propiedades
-            who: WhoEnum.User,
-            newID: true
-          };
+          // Obtener el caption de la imagen
+          const caption = curr.lastMsg.image.caption || '';
           
-          if (mensajeUsuario.message) {
+          // Construir el prompt incluyendo la descripción y el caption
+          let promptCompleto = `Contexto: El cliente ha enviado una imagen a nuestro servicio de peluquería con el siguiente mensaje: "${caption}"
+      
+          Descripción de la imagen: ${descripcion}
+      
+          Por favor, proporciona una respuesta profesional y útil enfocada en servicios de peluquería, considerando específicamente el mensaje del cliente y lo que se observa en la imagen.`;
+      
+          // Enviar a ChatGPT
+          const respuestaGPT = await ChatGPT.SendToGPT(promptCompleto);
+      
+          // Guardar primero el mensaje del usuario con el caption
+          if (caption) {
+            const mensajeUsuario = {
+              type: "text",
+              message: caption,
+              who: WhoEnum.User,
+              newID: true
+            };
             curr.AddMsg(mensajeUsuario);
           }
       
-          // Ahora procesamos la descripción de la imagen
+          // Guardar la descripción de la imagen
           curr.lastMsg.type = "text";
           curr.lastMsg.image = false;
           curr.lastMsg.who = WhoEnum.ChatGPT;
@@ -1815,26 +1823,17 @@ app.post("/webhook", async (req, res) => {
           curr.lastMsg.message = descripcion;
           curr.AddMsg(curr.lastMsg);
       
-          // Construimos el prompt para GPT incluyendo toda la información disponible
-          let promptCompleto = `Contexto: Un cliente ha enviado una imagen a nuestro servicio de peluquería.
-          
-          Descripción de la imagen: ${descripcion}
-          ${mensajeUsuario.message ? `\nMensaje del cliente: ${mensajeUsuario.message}` : ''}
-          
-          Por favor, proporciona una respuesta profesional y útil enfocada en nuestros servicios de peluquería, considerando tanto la imagen como cualquier mensaje adicional del cliente.`;
-      
-          const respuestaGPT = await ChatGPT.SendToGPT(promptCompleto);
-      
+          // Enviar la respuesta de ChatGPT
           if (respuestaGPT) {
             curr.Responder(respuestaGPT);
           } else {
             curr.Responder(
-              "Lo siento, no pude procesar adecuadamente tu mensaje. ¿Me podrías decir qué servicio te interesa?"
+              "Lo siento, no pude procesar adecuadamente tu mensaje. ¿Podrías decirme exactamente qué tipo de servicio te interesa?"
             );
           }
         } else {
           curr.Responder(
-            "Lo siento, no puedo procesar esta imagen en este momento. ¿Me podrías decir qué servicio necesitas?"
+            "Lo siento, no puedo procesar esta imagen en este momento. ¿Podrías decirme qué servicio necesitas?"
           );
         }
       } else if (curr.lastMsg.type === "interactive") {
