@@ -1995,122 +1995,55 @@ class Conversation {
 
   // si entra es porque va a reintentar un error y reduce el temporizador una vez
   async DoWatchDog() {
-    console.log("\n=== INICIO DOWATCHDOG ===");
     this.CancelWatchDog(true);
     --this.watchdogCount;
-
-    console.log("Estado WatchDog:", {
-        watchdogCount: this.watchdogCount,
-        salonID: this.salonID,
-        from: this.from
-    });
-
+    
     if (this.watchdogCount > 0) {
         try {
-            // Validar el salonID antes de usarlo
-            let validSalonId;
-            try {
-                // Convertir a ObjectId válido si es posible
-                validSalonId = this.salonID ? new ObjectId(this.salonID) : null;
-                console.log("SalonID válido:", validSalonId);
-            } catch (idError) {
-                console.error("Error al validar salonID:", idError);
-                validSalonId = null;
-            }
-
             let rtn = new Message(WhoEnum.System);
-            rtn.message = "Ha ocurrido un problema al procesar el último mensaje. Por favor, intenta enviar tu mensaje de nuevo.";
-            
-            // Log detallado del error
-            console.log("Registrando error:", {
-                mensaje: rtn.message,
-                salon: {
-                    id: validSalonId,
-                    nombre: this.salonNombre
-                },
-                from: this.from
-            });
-
+            rtn.message = `Ha ocurrido un problema al procesar el último mensaje del cliente. Debes comunicarle que ha habido un error y pedirle que lo intente de nuevo.`;
             DoLog(rtn.message);
 
-            // Registrar error con información validada
+            // Simplemente pasamos los valores tal cual al LogError
             await LogError(
                 this.from,
                 rtn.message,
-                validSalonId, // Usar el ID validado
-                this.salonNombre
-            );
-
-            this.AddMsg(rtn);
-
-            // Obtener la conversación completa
-            const conversacionCompleta = this.GetFull();
-            console.log("Longitud de conversación recuperada:", 
-                conversacionCompleta ? conversacionCompleta.length : 0);
-
-            // Preparar mensaje para ChatGPT
-            let msg = `${conversacionCompleta}.\n 
-                      Teniendo toda esta conversación, ¿qué le dirías al cliente? 
-                      SOLO escribe el mensaje que debería llegarle al cliente. 
-                      Si necesitas realizar una acción (como guardar la cita) 
-                      escribe el comando correspondiente y se le enviará al sistema 
-                      en vez de al cliente.`;
-
-            // Enviar a ChatGPT y procesar respuesta
-            rtn = new Message(WhoEnum.ChatGPT);
-            rtn.message = await ChatGPT.SendToGPT(msg);
-            
-            console.log("Respuesta de ChatGPT recibida:", 
-                rtn.message ? rtn.message.substring(0, 100) + "..." : "vacía");
-
-            this.AddMsg(rtn);
-
-            if (rtn.message && rtn.message.trim() !== "") {
-                await WhatsApp.Responder(_phone_number_id, this.from, rtn.message);
-                this.CancelWatchDog();
-                console.log("=== FIN DOWATCHDOG (respuesta enviada) ===\n");
-                return;
-            }
-
-        } catch (error) {
-            console.error("\n=== ERROR EN DOWATCHDOG ===");
-            console.error("Detalles del error:", {
-                mensaje: error.message,
-                stack: error.stack,
-                datos: {
-                    salonID: this.salonID,
-                    from: this.from
-                }
-            });
-
-            // Registrar error detallado
-            await LogError(
-                this.from,
-                `Error en DoWatchDog: ${error.message}`,
-                error,
                 this.salonID,
                 this.salonNombre
             );
 
-            // Incrementar contador de errores
+            this.AddMsg(rtn);
+            this.GetFull();
+            let msg = `${this.full}.\n Teniendo toda esta conversación, ¿qué le dirías al cliente? SOLO escribe el mensaje que debería llegarle al cliente. Si necesitas realizar una acción (como guardar la cita) escribe el comando correspondiente y se le enviará al sistema en vez de al cliente. El sistema te enviará la información correspondiente al comando o te confirmará una acción que hayas solicitado mediante comando`;
+            
+            rtn = new Message(WhoEnum.ChatGPT);
+            rtn.message = await ChatGPT.SendToGPT(msg);
+            this.AddMsg(rtn);
+            
+            if (rtn.message) {
+                await WhatsApp.Responder(_phone_number_id, this.from, rtn.message);
+                this.CancelWatchDog();
+                return;
+            }
+        } catch (ex) {
+            // Log directo del error sin procesamiento adicional
+            await LogError(
+                this.from,
+                'Error en DoWatchDog',
+                ex,
+                this.salonID,
+                this.salonNombre
+            );
             await statisticsManager.incrementFailedOperations();
-            DoLog(`Error en DoWatchDog: ${error}`, Log.Error);
+            DoLog(`Error en DogWatch: ${ex}`, Log.Error);
         }
     }
-
-    // Mensaje de fallback si todo lo demás falla
-    try {
-        await WhatsApp.Responder(
-            _phone_number_id,
-            this.from,
-            "Lo siento, ha ocurrido un error con el último mensaje, por favor vuelve a enviármelo."
-        );
-    } catch (sendError) {
-        console.error("Error al enviar mensaje de fallback:", sendError);
-        DoLog(`Error al enviar mensaje de fallback: ${sendError}`, Log.Error);
-    }
-
-    console.log("=== FIN DOWATCHDOG ===\n");
+    
+    await WhatsApp.Responder(
+        _phone_number_id,
+        this.from,
+        "Lo siento, ha ocurrido un error con el último mensaje, por favor vuelve a enviarmelo."
+    );
 }
 
   async initializeLog() {
@@ -2658,14 +2591,10 @@ class Conversation {
                 salonID: this.salonID
             });
 
-            // Buscar el peluquero completo usando el ID
-            const peluqueros = await MongoDB.ObtenerPeluqueros(this.salonID);
-            for (let peluquero of peluqueros) {
-                if (peluquero.peluqueroID == peluqueroID) {
-                    this.peluquero = peluquero;
-                    this.peluqueroNombre = peluquero.name;
-                    break;
-                }
+            // Buscar el peluquero en la lista
+            this.peluquero = peluqueros.find(p => p.peluqueroID === peluqueroID);
+            if (this.peluquero) {
+                this.peluqueroNombre = this.peluquero.name;
             }
             
             if (!this.peluquero) {
