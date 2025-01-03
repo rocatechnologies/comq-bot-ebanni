@@ -1790,10 +1790,17 @@ app.post("/webhook", async (req, res) => {
         const descripcion = await describirImagen(curr.lastMsg.image.id);
         console.log("descripcion de la imagen:", descripcion);
         if (descripcion) {
-          // Enviar la descripción a ChatGPT para obtener una respuesta personalizada
+          // Obtener el mensaje de texto que acompaña a la imagen
+          const mensajeAcompañante = curr.lastMsg.message || '';
+          console.log("mensajeAcompañante:", mensajeAcompañante);
+          
+          // Enviar tanto la descripción como el mensaje a ChatGPT
           const respuestaGPT = await ChatGPT.SendToGPT(
-            `Esta es la descripción de la imagen que te ha enviado el cliente: ${descripcion}. 
-            Por favor, proporciona una respuesta profesional y útil basada en esta imagen.`
+            `Contexto: El cliente ha enviado una imagen con el siguiente mensaje: "${mensajeAcompañante}"
+            
+            Descripción de la imagen: ${descripcion}
+            
+            Por favor, proporciona una respuesta profesional y útil que tenga en cuenta tanto la imagen como el mensaje del cliente.`
           );
       
           // Guardar la descripción original como mensaje
