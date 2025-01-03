@@ -2675,42 +2675,41 @@ class Conversation {
         return "";
 
     } catch (error) {
-        try {
-            const errorResponse = await ErrorHandler.handleCommandError(gpt, error, this);
-            return errorResponse;
-        } catch (correctionError) {
-            // Si falla la corrección, registrar el error y continuar con el manejo normal de errores
-            DoLog(`Error en la corrección del comando: ${correctionError}`, Log.Error);
-            
-            console.error("\n=== ERROR EN PROCESAR PELUQUERO ===");
-            console.error("Detalles del error:", {
-                mensaje: error.message,
-                stack: error.stack,
-                datos: {
-                    fecha: this.fecha,
-                    hora: this.hora,
-                    salon: this.salonID,
-                    servicio: this.nombreServicio
-                }
-            });
-            
-            const errorMsg = `Error al procesar la disponibilidad: ${error.message}`;
-            DoLog(errorMsg, Log.Error);
-            await LogError(
-                this.from,
-                errorMsg,
-                error,
-                this.salonID,
-                this.salonNombre
-            );
-            await statisticsManager.incrementFailedOperations();
-            
-            rtn.message = "Lo siento, ha ocurrido un error al verificar la disponibilidad. ¿Podrías intentarlo de nuevo?";
-            this.AddMsg(rtn);
-            console.log("=== FIN ERROR PROCESAR PELUQUERO ===\n");
-            return "";
-        }
-    }
+      // try {
+      //     const errorResponse = await ErrorHandler.handleCommandError(gpt, error, this);
+      //     return errorResponse;
+      // } catch (correctionError) {
+      //     DoLog(`Error en la corrección del comando: ${correctionError}`, Log.Error);
+          
+          console.error("\n=== ERROR EN PROCESAR PELUQUERO ===");
+          console.error("Detalles del error:", {
+              mensaje: error.message,
+              stack: error.stack,
+              datos: {
+                  fecha: this.fecha,
+                  hora: this.hora,
+                  salon: this.salonID,
+                  servicio: this.nombreServicio
+              }
+          });
+          
+          const errorMsg = `Error al procesar la disponibilidad: ${error.message}`;
+          DoLog(errorMsg, Log.Error);
+          await LogError(
+              this.from,
+              errorMsg,
+              error,
+              this.salonID,
+              this.salonNombre
+          );
+          await statisticsManager.incrementFailedOperations();
+          
+          rtn.message = "Lo siento, ha ocurrido un error al verificar la disponibilidad. ¿Podrías intentarlo de nuevo?";
+          this.AddMsg(rtn);
+          console.log("=== FIN ERROR PROCESAR PELUQUERO ===\n");
+          return "";
+      // }
+  }
 }
 
   async ProcesarCita(gpt) {
@@ -4886,7 +4885,6 @@ class ErrorHandler {
     });
 
     try {
-      // Validar parámetros de entrada
       if (!command || typeof command !== 'string') {
         throw new Error("Comando inválido o no proporcionado");
       }
@@ -4899,7 +4897,6 @@ class ErrorHandler {
         throw new Error("Conversación no proporcionada");
       }
 
-      // Extraer el tipo de comando normalizando los comandos
       const commandStr = command.trim().toUpperCase();
       const commandType = Object.keys(ErrorHandler.commandExamples).find(cmd => 
         commandStr.startsWith(cmd)
@@ -4914,7 +4911,30 @@ class ErrorHandler {
         throw new Error(`Tipo de comando no reconocido: ${commandStr}`);
       }
 
-      // Construir el prompt para ChatGPT con validación
+      // Special handling for LISTAPELUQ when a salon is provided instead of peluquero
+      if (commandType === 'LISTAPELUQ') {
+        const parts = command.split(' ');
+        const dateTime = parts[1];
+        
+        // Filtrar la lista de peluqueros solo para el centro especificado
+        const peluquerosDelCentro = peluqueros
+          .filter((peluquero) => peluquero.salonID === conversation.salonID)
+          .map((p) => `${p.peluqueroID}: ${p.name}`)
+          .join(", ");
+
+        if (peluquerosDelCentro) {
+          const systemMsg = new Message(WhoEnum.System);
+          systemMsg.message = `Parece que has introducido el nombre del salón en lugar del peluquero.
+                             Los peluqueros disponibles son: ${peluquerosDelCentro}\n
+                             Por favor, elige un peluquero o usa MOREINFO para ver la disponibilidad general.
+                             
+                             Ejemplo correcto: LISTAPELUQ ${dateTime} [nombre del peluquero]`;
+          
+          conversation.AddMsg(systemMsg);
+          return "";
+        }
+      }
+
       const exampleFormat = ErrorHandler.commandExamples[commandType];
       const prompt = `Has recibido un comando "${command}" que ha producido el siguiente error: "${error.message}".
                      El formato correcto para este tipo de comando debería ser como este ejemplo: "${exampleFormat}".
@@ -4926,15 +4946,12 @@ class ErrorHandler {
         exampleFormat: exampleFormat
       });
 
-      // Obtener la corrección de ChatGPT
       const correctedCommand = await ChatGPT.SendToGPT(prompt, false);
 
-      // Validar la respuesta de ChatGPT
       if (!correctedCommand || typeof correctedCommand !== 'string' || correctedCommand.trim() === "") {
         throw new Error("No se pudo obtener una corrección válida de ChatGPT");
       }
 
-      // Log detallado de la corrección
       console.log("Corrección recibida:", {
         original: command,
         corregido: correctedCommand
@@ -4943,7 +4960,6 @@ class ErrorHandler {
       DoLog(`Comando original: ${command}`);
       DoLog(`Comando corregido: ${correctedCommand}`);
 
-      // Crear y validar el mensaje del sistema
       const systemMsg = new Message(WhoEnum.System);
       systemMsg.message = `Se detectó y corrigió un error en el comando. Reintentando con el comando corregido.`;
       
@@ -4953,7 +4969,6 @@ class ErrorHandler {
 
       conversation.AddMsg(systemMsg);
 
-      // Procesar el comando corregido
       let gpt = new Message(WhoEnum.ChatGPT);
       gpt.message = correctedCommand.trim();
 
@@ -4971,7 +4986,6 @@ class ErrorHandler {
 
       DoLog(`Error en el manejo de errores: ${handlingError}`, Log.Error);
       
-      // Asegurarse de que conversation existe antes de usarlo
       if (conversation) {
         await LogError(
           conversation.from,
@@ -4982,7 +4996,6 @@ class ErrorHandler {
         );
       }
 
-      // Registrar estadísticas de error si es posible
       try {
         await statisticsManager.incrementFailedOperations();
       } catch (statsError) {
